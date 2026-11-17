@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+**/backend/results/
+**/backend/uploads/
+**/backend/users.json
+**/results/
+.DS_Store
