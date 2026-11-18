@@ -589,6 +589,12 @@ function ReportsPage({ reports }) {
                 </>
               )}
             </div>
+            {selectedReport.image_url && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontFamily: "'Rajdhani',sans-serif", fontWeight: 700, fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>ORIGINAL UPLOADED EVIDENCE</div>
+                <img src={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "")}${selectedReport.image_url}`} alt="Original road evidence" style={{ width: "100%", maxHeight: 260, objectFit: "contain", background: "#06111f", borderRadius: 9 }} />
+              </div>
+            )}
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {[
                 ["Report ID", selectedReport.id],
@@ -607,6 +613,29 @@ function ReportsPage({ reports }) {
 
           {/* Right panel */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <GlassCard style={{ padding: 20 }}>
+              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontWeight: 700, fontSize: 14, color: "#94a3b8", letterSpacing: "0.1em", marginBottom: 14 }}>OFFICIAL COMPLAINT DETAILS</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12 }}>
+                {[
+                  ["Complaint ID", `SR-${String(selectedReport.id).padStart(5,"0")}`],
+                  ["Complainant", selectedReport.uploader_name || "Not Provided"],
+                  ["User ID", selectedReport.uploader_id || "Not Provided"],
+                  ["Email", selectedReport.uploader_email || "Not Provided"],
+                  ["Phone", selectedReport.uploader_phone || "Not Provided"],
+                  ["Damage type", selectedReport.damage_type || "Pothole"],
+                  ["Priority", selectedReport.priority || "Not classified"],
+                  ["Submitted", selectedReport.submitted_at || selectedReport.timestamp || "Not Provided"],
+                  ["Latitude", selectedReport.lat ?? "Not Provided"],
+                  ["Longitude", selectedReport.lng ?? "Not Provided"],
+                  ["Road / address", selectedReport.road_name || selectedReport.location || "Not Provided"],
+                ].map(([label,value]) => <div key={label}><div style={{ color: "#64748b", fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>{label}</div><div style={{ color: "#e2e8f0", overflowWrap: "anywhere" }}>{String(value)}</div></div>)}
+              </div>
+              {selectedReport.lat != null && selectedReport.lng != null && <a href={`https://www.google.com/maps?q=${selectedReport.lat},${selectedReport.lng}`} target="_blank" rel="noreferrer" style={{ color: "#67e8f9", fontSize: 12, display: "inline-block", marginTop: 12 }}>Open complaint coordinates in Google Maps ↗</a>}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.07)" }}>
+                <div style={{ color: "#64748b", fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 6 }}>Citizen complaint description</div>
+                <div style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.6 }}>{selectedReport.description || selectedReport.ai_summary || "Not Provided"}</div>
+              </div>
+            </GlassCard>
             {/* Severity breakdown */}
             <GlassCard style={{ padding: 20 }}>
               <div style={{ fontFamily: "'Rajdhani',sans-serif", fontWeight: 700, fontSize: 14, color: "#94a3b8", letterSpacing: "0.1em", marginBottom: 14 }}>SEVERITY BREAKDOWN</div>
