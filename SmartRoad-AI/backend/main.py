@@ -17,6 +17,9 @@ import uuid
 import urllib.request
 import io
 import zipfile
+import threading
+from collections import OrderedDict
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, JSON, select, update, func
 from sqlalchemy.engine import make_url
 
@@ -60,6 +63,32 @@ except Exception as e:
     model = YOLO("yolov8n.pt")
     model.to("cpu")
 # ================= ADMIN DASHBOARD MEMORY STORAGE =================
+
+# Bounded cache for real outputs from identical image/model inputs.
+_IMAGE_DETECTION_CACHE = OrderedDict()
+_IMAGE_DETECTION_CACHE_LOCK = threading.Lock()
+_IMAGE_MODEL_LOCK = threading.Lock()
+_IMAGE_DETECTION_CACHE_MAX = 12
+
+
+def _cached_image_inspection(image_hash, image_array):
+    with _IMAGE_DETECTION_CACHE_LOCK:
+        cached = _IMAGE_DETECTION_CACHE.get(image_hash)
+        if cached is not None:
+            _IMAGE_DETECTION_CACHE.move_to_end(image_hash)
+            return cached
+    with _IMAGE_MODEL_LOCK:
+        detections = detect_potholes(image_array)
+        annotated = draw_detections(image_array.copy(), detections)
+        encoded = image_to_base64(annotated)
+    result = (detections, encoded)
+    with _IMAGE_DETECTION_CACHE_LOCK:
+        _IMAGE_DETECTION_CACHE[image_hash] = result
+        _IMAGE_DETECTION_CACHE.move_to_end(image_hash)
+        while len(_IMAGE_DETECTION_CACHE) > _IMAGE_DETECTION_CACHE_MAX:
+            _IMAGE_DETECTION_CACHE.popitem(last=False)
+    return result
+
 
 dashboard_data = {
     "total_uploads": 0,
@@ -132,7 +161,7 @@ def _find_duplicate_master(report, radius_m=35):
         if int(existing.get("detections", 0) or 0) <= 0:
             continue
         if str(existing.get("status", "")).lower() in {
-            "completed", "resolved", "closed", "rejected", "false image/rejected"
+            "completed", "resolved", "closed", "rejected", "false image/rejected", "pending submission"
         }:
             continue
         try:
@@ -512,25 +541,22 @@ async def detect_image(
         del nparr
         nparr = None
 
-        # Save original upload to results/images (use the already-read bytes)
-        try:
-            extension = os.path.splitext(file.filename or "")[1].lower()
-            if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
-                extension = ".jpg"
-            fname = f"{uuid.uuid4().hex}{extension}"
-            save_path = os.path.join(os.getcwd(), "results", "images", fname)
-            with open(save_path, "wb") as f:
-                f.write(contents)
-        except Exception:
-            save_path = None
-        
-        # Free contents buffer immediately after saving
-        del contents
-
         if image is None:
             raise HTTPException(status_code=400, detail="Invalid image file - could not decode")
         if image.shape[0] < 64 or image.shape[1] < 64:
             raise HTTPException(status_code=400, detail="Image is too small for reliable road inspection (minimum 64 x 64 pixels).")
+
+        # Save only validated uploads; preserve a static URL for report previews.
+        extension = os.path.splitext(file.filename or "")[1].lower()
+        if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+            extension = ".jpg"
+        fname = f"{uuid.uuid4().hex}{extension}"
+        save_path = os.path.join(RESULTS_DIR, "images", fname)
+        with open(save_path, "wb") as output_file:
+            output_file.write(contents)
+        image_url = f"/results/images/{fname}"
+        image_hash = hashlib.sha256(contents).hexdigest()
+        del contents
 
         # Cache dimensions before any resizing
         image_height = image.shape[0]
@@ -543,23 +569,10 @@ async def detect_image(
             scale = MAX_DIM / max(h, w)
             image = cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
-        # Detect potholes
-        detections = detect_potholes(image)
-       
-        # Draw detections on image
-        image_with_detections = draw_detections(image.copy(), detections)
-
-        # Free inference image immediately
+        # Keep CPU-bound model inference and JPEG encoding off the async event loop.
+        detections, image_base64 = await run_in_threadpool(_cached_image_inspection, image_hash, image)
         del image
         image = None
-
-        # Convert annotated image to base64
-        image_base64 = image_to_base64(image_with_detections)
-        del image_with_detections
-
-        # Manual GC to keep RAM usage under 512MB for free tier Render
-        import gc
-        gc.collect()
 
         # Calculate statistics
         severity_count = {
@@ -622,9 +635,13 @@ async def detect_image(
             "source": "user",
             "location": location_str,
             "description": description,
-            "status": "In Review",
-            "progress": 25,
+            "status": "Pending Submission",
+            "submission_status": "draft",
+            "progress": 0,
             "detections": len(detections),
+            "detection_details": detections,
+            "damage_type": "Pothole" if detections else "No damage detected",
+            "priority": "Critical" if str(is_critical).lower() in {"true", "1", "yes"} else ("Major" if severity_count["Major"] else "Moderate" if severity_count["Moderate"] else "Minor" if severity_count["Minor"] else "No detected damage"),
             "severity": severity_count,
             "timestamp": datetime.now().isoformat(),
             "lat": lat,
@@ -632,38 +649,24 @@ async def detect_image(
             "road_segment_id": road_segment_id,
             "location_resolution": "GPS supplied" if lat is not None and lng is not None else "Manual location; GPS unavailable",
             "image_path": save_path,
+            "image_url": image_url,
+            "original_file_name": file.filename or "uploaded-road-image",
             "image_with_detections": image_base64,
-            # uploader info (if authenticated)
+            # Account details are sourced from the authenticated profile only.
             "uploader_id": uploader.get('id') if uploader else None,
             "uploader_name": uploader.get('name') if uploader else "Anonymous",
+            "uploader_email": uploader.get('email') if uploader else None,
+            "uploader_phone": uploader.get('phone') if uploader else None,
             "verified": bool(uploader),
             "ai_review_required": any(d.get("review_required") for d in detections),
             "severity_method": "bounding_box_pixel_area_heuristic_not_physical_measurement",
         }
 
-        # If no detections, add a note so frontends can display a friendly message
+        # Detection is saved as a draft in the existing table. It is not yet
+        # an official complaint and is hidden from citizen/admin complaint lists.
         if len(detections) == 0:
             report["note"] = "No potholes detected in the submitted image."
-
         report = persist_report(report)
-        dashboard_data["reports"].append(report)
-       
-       
-        # Credit coins to user if authenticated and detections found
-        no_potholes = len(detections) == 0
-        try:
-            # try token from form first, then header Authorization
-            auth_token = token
-            if not auth_token and request is not None:
-                auth_hdr = request.headers.get('authorization') or request.headers.get('Authorization')
-                if auth_hdr and auth_hdr.lower().startswith('bearer '):
-                    auth_token = auth_hdr.split(' ', 1)[1].strip()
-
-            if auth_token and not no_potholes:
-                # award 10 coins for image reports that contain detections
-                credit_user_by_token(auth_token, 10, { 'report_id': report.get('id'), 'type': 'image', 'detections': len(detections) })
-        except Exception:
-            pass
         return {
             "success": True,
             "message": "No potholes detected" if no_potholes else "Image detection completed",
@@ -682,8 +685,10 @@ async def detect_image(
                 "duplicate_group_id": report.get("duplicate_group_id"),
                 "duplicate_of": report.get("duplicate_of"),
                 "status": report.get("status"),
+                "submission_status": "draft",
                 "timestamp": report.get("timestamp"),
             },
+            "report": {k: v for k, v in report.items() if k != "image_path"},
             "timestamp": datetime.now().isoformat()
         }
    
@@ -1315,11 +1320,18 @@ if __name__ == "__main__":
 
 @app.get("/admin/stats")
 def get_admin_stats():
-    return {
-        "success": True,
-        "data": dashboard_data,
-        "timestamp": datetime.now().isoformat()
+    # Query committed complaints from the shared database; pending drafts are hidden.
+    reports = [r for r in load_persisted_reports() if str(r.get("submission_status") or "submitted").lower() != "draft" and str(r.get("status") or "").lower() != "pending submission"]
+    stats = {
+        "total_uploads": len(reports),
+        "total_detections": sum(int(r.get("detections", 0) or 0) for r in reports),
+        "minor": sum(int((r.get("severity") or {}).get("Minor", 0) or 0) for r in reports),
+        "moderate": sum(int((r.get("severity") or {}).get("Moderate", 0) or 0) for r in reports),
+        "major": sum(int((r.get("severity") or {}).get("Major", 0) or 0) for r in reports),
+        "reports": reports,
     }
+    dashboard_data["reports"] = reports
+    return {"success": True, "data": stats, "timestamp": datetime.now().isoformat()}
 
 
 @app.get("/admin/report/{report_id}/artifacts")
@@ -1444,6 +1456,8 @@ def get_user_complaints(request: Request):
     owned_reports = []
     for report in rows:
         item = dict(report)
+        if str(item.get("submission_status") or "submitted").lower() == "draft" or str(item.get("status") or "").lower() == "pending submission":
+            continue
         history = item.get("history") or [{
             "status": item.get("status", "In Review"),
             "message": "Your complaint was received and is awaiting review.",
@@ -1532,6 +1546,98 @@ def auth_me(request: Request):
     safe = {"id": user.get('id'), "name": user.get('name'), "email": user.get('email'), "coins": user.get('coins', 0), "uploads": user.get('uploads', [])}
     return {"success": True, "data": safe}
 
+
+
+
+@app.get("/user/complaints/{report_id}")
+def get_user_complaint(report_id: int, request: Request):
+    """Return a complaint/draft only to the citizen who owns it."""
+    header = request.headers.get("authorization", "")
+    token = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else ""
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in to view this report.")
+    with db_engine.connect() as connection:
+        row = connection.execute(select(complaints_table.c.payload).where(complaints_table.c.id == report_id)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Complaint report not found.")
+    report = dict(row[0])
+    if str(report.get("uploader_id") or "") != str(user.get("id")):
+        raise HTTPException(status_code=403, detail="You do not have access to this complaint.")
+    report.pop("image_path", None)
+    report.pop("video_path", None)
+    return {"success": True, "data": report}
+
+
+@app.patch("/user/complaints/{report_id}/draft")
+def update_user_complaint_draft(report_id: int, payload: dict = Body(...), request: Request = None):
+    header = request.headers.get("authorization", "") if request else ""
+    token = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else ""
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in to edit this draft.")
+    with db_engine.connect() as connection:
+        row = connection.execute(select(complaints_table.c.payload).where(complaints_table.c.id == report_id)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Complaint draft not found.")
+    report = dict(row[0])
+    if str(report.get("uploader_id") or "") != str(user.get("id")):
+        raise HTTPException(status_code=403, detail="You do not have access to this draft.")
+    if str(report.get("submission_status") or "").lower() != "draft":
+        raise HTTPException(status_code=409, detail="This complaint has already been submitted.")
+    changes = {}
+    if "description" in payload:
+        changes["description"] = str(payload.get("description") or "").strip()[:2000]
+    if "location" in payload:
+        changes["location"] = str(payload.get("location") or "").strip()[:500]
+    if "lat" in payload or "lng" in payload:
+        try:
+            lat, lng = float(payload.get("lat")), float(payload.get("lng"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Enter valid latitude and longitude coordinates.")
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise HTTPException(status_code=400, detail="Coordinates are outside valid ranges.")
+        changes.update({"lat": lat, "lng": lng, "road_segment_id": _road_segment_id(lat, lng), "location_resolution": "Citizen corrected coordinates"})
+    if changes:
+        changes["updated_at"] = datetime.now().isoformat()
+        report = update_persisted_report(report_id, changes)
+    report.pop("image_path", None)
+    return {"success": True, "data": report}
+
+
+@app.post("/user/complaints/{report_id}/submit")
+def submit_user_complaint(report_id: int, request: Request):
+    header = request.headers.get("authorization", "")
+    token = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else ""
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in before submitting an official complaint.")
+    with db_engine.connect() as connection:
+        row = connection.execute(select(complaints_table.c.payload).where(complaints_table.c.id == report_id)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Complaint draft not found.")
+    report = dict(row[0])
+    if str(report.get("uploader_id") or "") != str(user.get("id")):
+        raise HTTPException(status_code=403, detail="You cannot submit another user's report.")
+    if str(report.get("submission_status") or "").lower() != "draft":
+        return {"success": True, "message": "This complaint has already been submitted.", "data": report}
+    now = datetime.now().isoformat()
+    history = list(report.get("history") or [])
+    history.append({"status": "Submitted", "previous_status": "Pending Submission", "message": "Official road-damage complaint submitted by the citizen.", "timestamp": now, "actor": "Citizen", "visibility": "public"})
+    updated = update_persisted_report(report_id, {
+        "status": "Submitted",
+        "submission_status": "submitted",
+        "progress": 5,
+        "submitted_at": now,
+        "history": history,
+        "uploader_name": user.get("name") or "Not Provided",
+        "uploader_email": user.get("email") or None,
+        "uploader_phone": user.get("phone") or None,
+    })
+    if updated and int(updated.get("detections", 0) or 0) > 0:
+        credit_user_by_token(token, 10, {"report_id": report_id, "type": "image", "detections": updated.get("detections", 0)})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Official complaint submitted successfully.", "data": updated}
 
 
 
