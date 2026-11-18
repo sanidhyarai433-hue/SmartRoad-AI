@@ -524,8 +524,8 @@ export default function SmartRoadReport() {
     requestLock.current = true;
     setSubmitting(true); setError(""); setProgress(0);
     setSteps([
-      { id: "upload", label: "Uploading image", status: "in-progress" },
-      { id: "analyze", label: "Analyzing road surface", status: "pending" },
+      { id: "upload", label: isVideo ? "Uploading video" : "Uploading image", status: "in-progress" },
+      { id: "analyze", label: isVideo ? "Analyzing road video" : "Analyzing road surface", status: "pending" },
       { id: "detect", label: "Detecting potholes and damage", status: "pending" },
       { id: "severity", label: "Calculating severity", status: "pending" },
       { id: "results", label: "Generating results", status: "pending" },
@@ -544,16 +544,23 @@ export default function SmartRoadReport() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
     try {
-      const responsePromise = fetch(`${backendBase}/detect/image`, {
-        method: "POST",
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-        body: fd,
-        signal: controller.signal,
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${backendBase}${isVideo ? "/detect/video" : "/detect/image"}`);
+        xhr.timeout = 90000;
+        if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
+        xhr.upload.onload = () => setSteps(current => current.map(step => step.id === "upload" ? { ...step, status: "done" } : step.id === "analyze" ? { ...step, status: "in-progress" } : step));
+        xhr.onload = () => {
+          let payload = {};
+          try { payload = JSON.parse(xhr.responseText || "{}"); } catch { payload = {}; }
+          if (xhr.status < 200 || xhr.status >= 300 || payload.success === false) reject(new Error(payload.detail || payload.message || `AI inspection failed (${xhr.status})`));
+          else resolve(payload);
+        };
+        xhr.onerror = () => reject(new Error("Network error while uploading evidence. Check your connection and try again."));
+        xhr.ontimeout = () => reject(new Error("AI inspection timed out after 90 seconds. Check your connection and try again."));
+        xhr.onabort = () => reject(new Error("AI inspection was cancelled."));
+        xhr.send(fd);
       });
-      setSteps(current => current.map(step => step.id === "upload" ? { ...step, status: "done" } : step.id === "analyze" ? { ...step, status: "in-progress" } : step));
-      const res = await responsePromise;
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.success === false) throw new Error(data.detail || data.message || `AI inspection failed (${res.status})`);
       setSteps(current => current.map(step => ["analyze", "detect", "severity"].includes(step.id) ? { ...step, status: "done" } : step.id === "results" ? { ...step, status: "in-progress" } : step));
       const detectionRows = Array.isArray(data.detections) ? data.detections : [];
       const severityBreakdown = data.statistics?.severity_breakdown || {
