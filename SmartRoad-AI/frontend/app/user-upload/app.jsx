@@ -534,7 +534,8 @@ export default function SmartRoadReport() {
     fd.append("file", file);
     fd.append("latitude", String(location.lat));
     fd.append("longitude", String(location.lng));
-    fd.append("description", [location.road, description].filter(Boolean).join(" — "));
+    fd.append("description", description);
+    fd.append("road_name", location.road || "");
     if (critical) fd.append("is_critical", "true");
     if (severity) fd.append("severity", severity);
     const authToken = typeof window !== "undefined" ? localStorage.getItem("sr_token") : null;
