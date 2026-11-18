@@ -11,6 +11,7 @@ import {
   Area, AreaChart
 } from "recharts";
 import AuthModal from '../../components/AuthModal';
+import RoadPriorityPage from "./priority/page";
 
 /* ─────────────────────────────────────────
    GOOGLE FONTS INJECTION
@@ -165,6 +166,7 @@ function GlassCard({ children, style = {}, hover = true }) {
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "▦" },
   { id: "reports", label: "Reports", icon: "☰" },
+  { id: "priority", label: "Priority & Contractors", icon: "⚒" },
   { id: "map", label: "Map View", icon: "◉" },
   { id: "analytics", label: "Analytics", icon: "◈" },
   { id: "settings", label: "Settings", icon: "⚙" },
@@ -268,7 +270,7 @@ function Topbar({ page, darkMode, setDarkMode, backendOnline, lastUpdated, sideb
   const router = useRouter();
   const unread = NOTIFS.filter(n => !n.read).length;
 
-  const titles = { dashboard: "Dashboard Overview", reports: "Reports", map: "Map View", analytics: "Analytics", settings: "Settings" };
+  const titles = { dashboard: "Dashboard Overview", reports: "Reports", priority: "Road Priority & Contractors", map: "Map View", analytics: "Analytics", settings: "Settings" };
 
   return (
     <div style={{
@@ -1120,6 +1122,7 @@ export default function App() {
   const pages = {
     dashboard: <DashboardPage stats={stats} reports={reports} backendOnline={backendOnline} />,
     reports: <ReportsPage reports={reports} />,
+    priority: <RoadPriorityPage />,
     map: <MapPage reports={reports} />,
     analytics: <AnalyticsPage stats={stats} reports={reports} />,
     settings: <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} />
