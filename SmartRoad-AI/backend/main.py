@@ -1640,7 +1640,7 @@ def update_user_complaint_draft(report_id: int, payload: dict = Body(...), reque
             raise HTTPException(status_code=400, detail="Enter valid latitude and longitude coordinates.")
         if not (-90 <= lat <= 90 and -180 <= lng <= 180):
             raise HTTPException(status_code=400, detail="Coordinates are outside valid ranges.")
-        changes.update({"lat": lat, "lng": lng, "road_segment_id": _road_segment_id(lat, lng), "location_resolution": "Citizen corrected coordinates"})
+        changes.update({"lat": lat, "lng": lng, "road_segment_id": _road_segment_id(lat, lng), "location_resolution": "Citizen corrected coordinates", "location_captured_at": datetime.now().isoformat()})
     if changes:
         changes["updated_at"] = datetime.now().isoformat()
         report = update_persisted_report(report_id, changes)
