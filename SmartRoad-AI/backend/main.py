@@ -697,7 +697,7 @@ async def detect_image(
                 "submission_status": "draft",
                 "timestamp": report.get("timestamp"),
             },
-            "report": {k: v for k, v in report.items() if k not in {"image_path", "image_with_detections"}},
+            "report": {k: v for k, v in report.items() if k not in {"image_path", "image_with_detections", "detection_details", "previews", "attachments"}},
             "timestamp": datetime.now().isoformat()
         }
    
@@ -1340,7 +1340,7 @@ def get_admin_stats():
     summary_reports = []
     for report in reports:
         summary = dict(report)
-        for large_field in ("image_with_detections", "detection_details", "previews", "image_path", "video_path"):
+        for large_field in ("image_with_detections", "detection_details", "previews", "attachments", "image_path", "video_path"):
             summary.pop(large_field, None)
         summary_reports.append(summary)
     stats = {
@@ -1506,6 +1506,7 @@ def get_user_complaints(request: Request):
         item.pop("image_with_detections", None)
         item.pop("detection_details", None)
         item.pop("previews", None)
+        item.pop("attachments", None)
         owned_reports.append(item)
 
     owned_reports.sort(
