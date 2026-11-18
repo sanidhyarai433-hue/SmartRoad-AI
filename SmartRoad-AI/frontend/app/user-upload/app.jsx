@@ -257,7 +257,7 @@ function UploadBox({ file, onFile, onRemove }) {
       <p style={{ color:"#e2e8f0", fontWeight:600, marginBottom:4, fontSize:".95rem" }}>
         Drop file here or <span style={{ color:"#06b6d4" }}>browse</span>
       </p>
-      <p style={{ color:"#475569", fontSize:".82rem" }}>Images &amp; videos · Max 50 MB</p>
+      <p style={{ color:"#475569", fontSize:".82rem" }}>Images up to 10 MB · Videos up to 100 MB</p>
     </div>
   );
 }
