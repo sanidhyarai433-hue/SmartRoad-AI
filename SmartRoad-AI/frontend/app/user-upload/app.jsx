@@ -394,7 +394,7 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
 
   const share = () => {
     navigator.clipboard.writeText(
-      `🚧 Road Issue Reported via SmartRoad AI\n📍 ${location?.road||"Unknown"}\n⚠️ Severity: ${result.severity||"—"}\n🔍 ${result.total_detections||"?"} pothole(s) detected`
+      `🚧 Road Inspection via SmartRoad AI\n📍 ${location?.road||"Unknown"}\n⚠️ Severity: ${result.severity||"—"}\n🔍 ${result.total_detections||"?"} pothole(s) detected — draft pending submission`
     ).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2200); });
   };
 
@@ -402,7 +402,7 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
     { icon:"🔍", label:"Detections",  val:result.total_detections ?? "—",                              color:"#06b6d4" },
     { icon:"📊", label:"Confidence",  val:result.confidence ? `${(result.confidence*100).toFixed(0)}%` : "—", color:"#3b82f6" },
     { icon:"⚠️", label:"Severity",    badge:result.severity },
-    { icon:"🕐", label:"Submitted",   val:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}), color:"#a78bfa" },
+    { icon:"🕐", label:"Analyzed",   val:new Date(result.timestamp || Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}), color:"#a78bfa" },
   ];
 
   return (
