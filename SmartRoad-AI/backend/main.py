@@ -525,7 +525,8 @@ async def detect_image(
         if len(detections) == 0:
             report["note"] = "No potholes detected in the submitted image."
 
-        report = persist_report(report)\n        dashboard_data["reports"].append(report)
+        report = persist_report(report)\n        report = persist_report(report)
+        # Video report is persisted after uploader identity is resolved below.
        
        
         # Credit coins to user if authenticated and detections found
@@ -1061,7 +1062,7 @@ async def detect_video(
             annotated_rel = None
 
         report = {
-            "id": len(dashboard_data["reports"]) + 1,
+            "id": None,
             "type": "video",
             "source": "user",
             "location": location_str,
@@ -1111,6 +1112,9 @@ async def detect_video(
                 report['uploader_id'] = uploader.get('id')
                 report['uploader_name'] = uploader.get('name')
                 report['verified'] = True
+
+            report = persist_report(report)
+            dashboard_data["reports"].append(report)
 
             if auth_token and not no_potholes_video:
                 # award 20 coins for video reports that contain detections
@@ -1231,6 +1235,7 @@ def update_report_status(report_id: int, payload: dict = Body(...)):
             except Exception:
                 pass
 
+            update_persisted_report(int(report_id), r)
             update_persisted_report(int(report_id), r)
             return {"success": True, "message": "Report updated", "report": r}
 
