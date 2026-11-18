@@ -508,6 +508,7 @@ async def detect_image(
     latitude: str = Form(None),
     longitude: str = Form(None),
     description: str = Form(None),
+    road_name: str = Form(None),
     is_critical: str = Form(None),
     token: str = Form(None),
     request: Request = None,
@@ -634,7 +635,9 @@ async def detect_image(
             "type": "image",
             "source": "user",
             "location": location_str,
+            "road_name": road_name or None,
             "description": description,
+            "ai_summary": (f"AI analysis identified {len(detections)} pothole(s): {severity_count['Major']} major, {severity_count['Moderate']} moderate and {severity_count['Minor']} minor damage instance(s). " + ("Inspection and necessary road maintenance are requested." if detections else "No potholes were detected by the AI model; manual inspection may still be requested.")),
             "status": "Pending Submission",
             "submission_status": "draft",
             "progress": 0,
@@ -1767,7 +1770,8 @@ def _build_priority_incidents():
     # Always build the municipal queue from persistent complaints, not a stale worker cache.
     reports = [
         dict(r) for r in load_persisted_reports()
-        if str(r.get("status", "")).lower() not in {"completed", "closed", "false image/rejected", "rejected"}
+        if str(r.get("status", "")).lower() not in {"completed", "closed", "false image/rejected", "rejected", "pending submission"}
+        and str(r.get("submission_status") or "").lower() != "draft"
         and int(r.get("detections", 0) or 0) > 0
     ]
     clusters = []
