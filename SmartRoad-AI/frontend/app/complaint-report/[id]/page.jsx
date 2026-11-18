@@ -92,7 +92,7 @@ export default function ComplaintReportPage() {
   const annotatedImage = report?.image_with_detections
     ? (report.image_with_detections.startsWith("data:") ? report.image_with_detections : `data:image/jpeg;base64,${report.image_with_detections}`)
     : null;
-  const submitted = String(report?.submission_status || "").toLowerCase() === "submitted";
+  const submitted = !!report && (String(report.submission_status || "").toLowerCase() === "submitted" || (!report.submission_status && String(report.status || "").toLowerCase() !== "pending submission"));
 
   async function saveDraft() {
     const token = localStorage.getItem("sr_token");
