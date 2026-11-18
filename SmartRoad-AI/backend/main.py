@@ -357,8 +357,8 @@ def draw_detections(image, detections):
 
 # Helper function to convert image to base64
 def image_to_base64(image_array):
-    """Convert numpy array to base64 string"""
-    _, buffer = cv2.imencode('.jpg', image_array)
+    """Encode annotated evidence at a transfer-friendly JPEG quality."""
+    _, buffer = cv2.imencode('.jpg', image_array, [cv2.IMWRITE_JPEG_QUALITY, 82])
     return base64.b64encode(buffer).decode('utf-8')
 
 
@@ -697,7 +697,7 @@ async def detect_image(
                 "submission_status": "draft",
                 "timestamp": report.get("timestamp"),
             },
-            "report": {k: v for k, v in report.items() if k != "image_path"},
+            "report": {k: v for k, v in report.items() if k not in {"image_path", "image_with_detections"}},
             "timestamp": datetime.now().isoformat()
         }
    
@@ -1337,16 +1337,32 @@ if __name__ == "__main__":
 def get_admin_stats():
     # Query committed complaints from the shared database; pending drafts are hidden.
     reports = [r for r in load_persisted_reports() if str(r.get("submission_status") or "submitted").lower() != "draft" and str(r.get("status") or "").lower() != "pending submission"]
+    summary_reports = []
+    for report in reports:
+        summary = dict(report)
+        for large_field in ("image_with_detections", "detection_details", "previews", "image_path", "video_path"):
+            summary.pop(large_field, None)
+        summary_reports.append(summary)
     stats = {
         "total_uploads": len(reports),
         "total_detections": sum(int(r.get("detections", 0) or 0) for r in reports),
         "minor": sum(int((r.get("severity") or {}).get("Minor", 0) or 0) for r in reports),
         "moderate": sum(int((r.get("severity") or {}).get("Moderate", 0) or 0) for r in reports),
         "major": sum(int((r.get("severity") or {}).get("Major", 0) or 0) for r in reports),
-        "reports": reports,
+        "reports": summary_reports,
     }
     dashboard_data["reports"] = reports
     return {"success": True, "data": stats, "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/admin/report/{report_id}")
+def get_admin_report_detail(report_id: int):
+    """Load heavy evidence only when an administrator opens a specific report."""
+    with db_engine.connect() as connection:
+        row = connection.execute(select(complaints_table.c.payload).where(complaints_table.c.id == report_id)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Report not found.")
+    return {"success": True, "data": dict(row[0])}
 
 
 @app.get("/admin/report/{report_id}/artifacts")
@@ -1485,6 +1501,11 @@ def get_user_complaints(request: Request):
         item.pop("admin_notes", None)
         item.pop("image_path", None)
         item.pop("video_path", None)
+        # Keep the history list light; the full report endpoint supplies evidence
+        # only when a citizen opens a particular complaint.
+        item.pop("image_with_detections", None)
+        item.pop("detection_details", None)
+        item.pop("previews", None)
         owned_reports.append(item)
 
     owned_reports.sort(
