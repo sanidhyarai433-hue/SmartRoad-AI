@@ -27,6 +27,8 @@ export default function ComplaintReportPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [geoAddress, setGeoAddress] = useState({});
+  const [additionalFile, setAdditionalFile] = useState(null);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
 
   const load = useCallback(async () => {
     const token = localStorage.getItem("sr_token");
@@ -107,6 +109,27 @@ export default function ComplaintReportPage() {
     setReport(result.data);
     setNotice("Your report changes have been saved.");
     setEditing(false);
+  }
+
+  async function uploadEvidence() {
+    if (!additionalFile) return;
+    setUploadingEvidence(true); setError(""); setNotice("");
+    try {
+      const form = new FormData();
+      form.append("file", additionalFile);
+      const token = localStorage.getItem("sr_token");
+      const response = await fetch(`${API}/user/complaints/${id}/evidence`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.detail || "Could not attach this evidence.");
+      setReport(current => ({ ...current, attachments: [...(current.attachments || []), result.data] }));
+      setAdditionalFile(null);
+      setNotice("Additional evidence attached to this complaint.");
+    } catch (err) { setError(err.message); }
+    finally { setUploadingEvidence(false); }
   }
 
   async function submitOfficial() {
@@ -259,6 +282,15 @@ export default function ComplaintReportPage() {
             <div><div style={styles.label}>AI annotated evidence</div>{report.type === "video" && report.artifacts?.annotated ? <video src={`${API}${report.artifacts.annotated}`} controls style={{ width: "100%", maxHeight: 340, borderRadius: 10, background: "#06111f" }} /> : annotatedImage ? <img src={annotatedImage} alt="AI annotated road evidence" style={{ width: "100%", maxHeight: 340, objectFit: "contain", borderRadius: 10, background: "#06111f" }} /> : <p style={styles.muted}>Annotated evidence unavailable.</p>}</div>
           </div>
           <div style={{ ...styles.muted, marginTop: 12 }}>Original file: {textOr(report.original_file_name)} · Uploaded: {dateText(report.timestamp)}</div>
+          <div style={{ marginTop: 18 }}>
+            <div style={styles.label}>Additional evidence</div>
+            {(report.attachments || []).length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 12 }}>{report.attachments.map((item,index) => <div key={index} style={{ border: "1px solid rgba(148,181,215,.15)", borderRadius: 9, padding: 8 }}><img src={item.image_url?.startsWith("http") ? item.image_url : `${API}${item.image_url}`} alt={item.file_name || "Additional evidence"} style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 6 }} /><div style={{ ...styles.muted, fontSize: 11, marginTop: 6 }}>{item.file_name}</div><div style={{ ...styles.muted, fontSize: 10 }}>{dateText(item.uploaded_at)}</div></div>)}</div>}
+            {!submitted && <div className="no-print" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setAdditionalFile(e.target.files?.[0] || null)} style={{ color: "#cbd5e1", maxWidth: "100%" }} />
+              <button style={styles.button} disabled={!additionalFile || uploadingEvidence} onClick={uploadEvidence}>{uploadingEvidence ? "Uploading…" : "Attach evidence"}</button>
+            </div>}
+            {!report.attachments?.length && <p style={styles.muted}>No additional evidence attached.</p>}
+          </div>
         </section>
 
         <section style={{ ...styles.panel, gridColumn: "1 / -1", borderColor: severity === "Critical" || severity === "Major" ? "rgba(248,113,113,.4)" : "rgba(148,181,215,.16)" }}>
