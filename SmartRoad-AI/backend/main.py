@@ -107,10 +107,62 @@ def load_persisted_reports():
     return [dict(row) for row in rows]
 
 
+def _road_segment_id(lat, lng):
+    """Create a stable location-derived segment key; it is not an official road registry ID."""
+    if lat is None or lng is None:
+        return None
+    return f"SRD-{round(float(lat), 4):+.4f}-{round(float(lng), 4):+.4f}"
+
+
+def _find_duplicate_master(report, radius_m=35):
+    """Link nearby active pothole reports while preserving every citizen's own complaint."""
+    if int(report.get("detections", 0) or 0) <= 0:
+        return None, None
+    try:
+        lat, lng = float(report.get("lat")), float(report.get("lng"))
+    except (TypeError, ValueError):
+        return None, None
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return None, None
+
+    from math import radians, sin, cos, asin, sqrt
+    for existing in dashboard_data.get("reports", []):
+        if str(existing.get("status", "")).lower() in {
+            "completed", "resolved", "closed", "rejected", "false image/rejected"
+        }:
+            continue
+        try:
+            old_lat, old_lng = float(existing.get("lat")), float(existing.get("lng"))
+        except (TypeError, ValueError):
+            continue
+        dlat, dlng = radians(lat - old_lat), radians(lng - old_lng)
+        a = sin(dlat / 2) ** 2 + cos(radians(old_lat)) * cos(radians(lat)) * sin(dlng / 2) ** 2
+        distance = 6371000 * 2 * asin(sqrt(a))
+        if distance <= radius_m:
+            master_id = existing.get("duplicate_of") or existing.get("id")
+            master = next(
+                (item for item in dashboard_data.get("reports", []) if str(item.get("id")) == str(master_id)),
+                existing,
+            )
+            return master, round(distance, 1)
+    return None, None
+
+
 def persist_report(report):
-    """Insert a complaint and return it with its database-assigned ID."""
+    """Persist a complaint, assign a road segment key and link nearby active reports."""
     payload = dict(report)
     payload.pop("id", None)
+    payload["road_segment_id"] = payload.get("road_segment_id") or _road_segment_id(
+        payload.get("lat"), payload.get("lng")
+    )
+    master, duplicate_distance = _find_duplicate_master(payload)
+    if master:
+        payload["duplicate_group_id"] = master.get("duplicate_group_id") or f"DUP-{master.get('id')}"
+        payload["duplicate_of"] = master.get("id")
+        payload["duplicate_match_distance_m"] = duplicate_distance
+    else:
+        payload["duplicate_of"] = None
+
     with db_engine.begin() as connection:
         result = connection.execute(
             complaints_table.insert().values(
@@ -121,11 +173,26 @@ def persist_report(report):
         )
         report_id = result.inserted_primary_key[0]
         payload["id"] = report_id
+        if not master and int(payload.get("detections", 0) or 0) > 0 and payload.get("lat") is not None:
+            payload["duplicate_group_id"] = f"DUP-{report_id}"
         connection.execute(
             complaints_table.update()
             .where(complaints_table.c.id == report_id)
             .values(payload=payload)
         )
+
+        if master:
+            linked_ids = list(master.get("linked_report_ids") or [])
+            if report_id not in linked_ids:
+                linked_ids.append(report_id)
+            master["duplicate_group_id"] = payload["duplicate_group_id"]
+            master["linked_report_ids"] = linked_ids
+            master["duplicate_count"] = len(linked_ids) + 1
+            connection.execute(
+                complaints_table.update()
+                .where(complaints_table.c.id == int(master["id"]))
+                .values(payload=master)
+            )
     return payload
 
 
@@ -426,8 +493,12 @@ async def detect_image(
         image_height = 0
         image_width = 0
 
-        # Read uploaded file
+        # Read and validate the upload before inference or disk writes.
         contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="The uploaded image is empty.")
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Image exceeds the 10 MB upload limit.")
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -437,7 +508,10 @@ async def detect_image(
 
         # Save original upload to results/images (use the already-read bytes)
         try:
-            fname = f"{int(datetime.now().timestamp())}_{file.filename}"
+            extension = os.path.splitext(file.filename or "")[1].lower()
+            if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+                extension = ".jpg"
+            fname = f"{uuid.uuid4().hex}{extension}"
             save_path = os.path.join(os.getcwd(), "results", "images", fname)
             with open(save_path, "wb") as f:
                 f.write(contents)
@@ -449,6 +523,8 @@ async def detect_image(
 
         if image is None:
             raise HTTPException(status_code=400, detail="Invalid image file - could not decode")
+        if image.shape[0] < 64 or image.shape[1] < 64:
+            raise HTTPException(status_code=400, detail="Image is too small for reliable road inspection (minimum 64 x 64 pixels).")
 
         # Cache dimensions before any resizing
         image_height = image.shape[0]
@@ -509,8 +585,17 @@ async def detect_image(
             if p_lat is not None and p_lng is not None:
                 lat, lng = p_lat, p_lng
 
-        # Prefer coordinates for location when available; keep original description separately
+        # Reject out-of-range GPS values and require a complete coordinate pair.
+        if lat is not None and not -90 <= lat <= 90:
+            lat = None
+        if lng is not None and not -180 <= lng <= 180:
+            lng = None
+        if lat is None or lng is None:
+            lat, lng = None, None
+
+        # Prefer coordinates for location when available; keep original description separately.
         location_str = f"{lat},{lng}" if lat is not None and lng is not None else (description or "Unknown Road")
+        road_segment_id = _road_segment_id(lat, lng)
 
         # Resolve uploader from token (form token or Authorization header)
         auth_token = token
@@ -538,6 +623,8 @@ async def detect_image(
             "timestamp": datetime.now().isoformat(),
             "lat": lat,
             "lng": lng,
+            "road_segment_id": road_segment_id,
+            "location_resolution": "GPS supplied" if lat is not None and lng is not None else "Manual location; GPS unavailable",
             "image_path": save_path,
             "image_with_detections": image_base64,
             # uploader info (if authenticated)
@@ -580,6 +667,14 @@ async def detect_image(
                 "severity_breakdown": severity_count,
                 "image_height": image_height,
                 "image_width": image_width
+            },
+            "complaint": {
+                "id": report.get("id"),
+                "road_segment_id": report.get("road_segment_id"),
+                "duplicate_group_id": report.get("duplicate_group_id"),
+                "duplicate_of": report.get("duplicate_of"),
+                "status": report.get("status"),
+                "timestamp": report.get("timestamp"),
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -1016,8 +1111,17 @@ async def detect_video(
             if p_lat is not None and p_lng is not None:
                 lat, lng = p_lat, p_lng
 
-        # Prefer coordinates for location when available; keep original description separately
+        # Reject out-of-range GPS values and require a complete coordinate pair.
+        if lat is not None and not -90 <= lat <= 90:
+            lat = None
+        if lng is not None and not -180 <= lng <= 180:
+            lng = None
+        if lat is None or lng is None:
+            lat, lng = None, None
+
+        # Prefer coordinates for location when available; keep original description separately.
         location_str = f"{lat},{lng}" if lat is not None and lng is not None else (description or "Unknown Road")
+        road_segment_id = _road_segment_id(lat, lng)
 
         # Build previews list from unique_detections (if detection objects include preview_image)
         previews = []
@@ -1099,6 +1203,8 @@ async def detect_video(
             "timestamp": datetime.now().isoformat(),
             "lat": lat,
             "lng": lng,
+            "road_segment_id": road_segment_id,
+            "location_resolution": "GPS supplied" if lat is not None and lng is not None else "Manual location; GPS unavailable",
             "video_path": save_vpath,
             "previews": previews,
             "artifacts_url": f"/results/artifacts/{report_id}/",
@@ -1161,6 +1267,14 @@ async def detect_video(
                 "total_detections": len(unique_detections),
                 "severity_breakdown": severity_count,
                 "frames_analyzed": processed_frames
+            },
+            "complaint": {
+                "id": report.get("id"),
+                "road_segment_id": report.get("road_segment_id"),
+                "duplicate_group_id": report.get("duplicate_group_id"),
+                "duplicate_of": report.get("duplicate_of"),
+                "status": report.get("status"),
+                "timestamp": report.get("timestamp"),
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -1265,6 +1379,29 @@ def update_report_status(report_id: int, payload: dict = Body(...)):
 
     return JSONResponse(status_code=404, content={"success": False, "message": "Report not found"})
 
+
+
+# ============== ROAD LOCATION IDENTIFICATION ==============
+
+@app.post("/roads/identify")
+def identify_road(payload: dict = Body(...)):
+    """Return a stable GPS-derived road segment key without inventing road ownership."""
+    try:
+        lat = float(payload.get("latitude", payload.get("lat")))
+        lng = float(payload.get("longitude", payload.get("lng")))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Valid latitude and longitude are required.")
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise HTTPException(status_code=400, detail="Coordinates are outside valid GPS ranges.")
+    return {
+        "success": True,
+        "road_segment_id": _road_segment_id(lat, lng),
+        "latitude": lat,
+        "longitude": lng,
+        "authority": None,
+        "authority_resolution": "pending_official_road_registry",
+        "message": "Location identified. Official road ownership requires a verified municipal/PWD/NHAI road registry.",
+    }
 
 
 # ============== CITIZEN COMPLAINT TRACKING ==============
