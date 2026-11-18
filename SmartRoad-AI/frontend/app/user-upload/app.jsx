@@ -545,7 +545,7 @@ export default function SmartRoadReport() {
     setSteps(baseSteps);
 
     const fd = new FormData();
-    fd.append(isVideo ? "video" : "image", file);
+    fd.append("file", file);
     // Match the FastAPI form fields so the backend saves the road location correctly.
     fd.append("latitude", String(location.lat));
     fd.append("longitude", String(location.lng));
@@ -564,7 +564,9 @@ export default function SmartRoadReport() {
       // mark upload started
       setSteps(s => s.map(st => st.id === 'upload' ? { ...st, status: 'in-progress' } : st));
 
-      const res = await fetch(isVideo ? "/detect/video" : "/detect/image", {
+      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "");
+      const endpoint = isVideo ? "/detect/video" : "/detect/image";
+      const res = await fetch(`${backendBase}${endpoint}`, {
         method: "POST",
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
         body: fd
@@ -574,8 +576,8 @@ export default function SmartRoadReport() {
       setSteps(s => s.map(st => st.id === 'upload' ? { ...st, status: 'done' } : st));
       setSteps(s => s.map(st => st.id === 'send' ? { ...st, status: 'in-progress' } : st));
 
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) throw new Error(data.detail || data.message || `Backend request failed (${res.status})`);
       // backend detection stage
       setSteps(s => s.map(st => st.id === 'send' ? { ...st, status: 'done' } : st));
       setSteps(s => s.map(st => st.id === 'detect' ? { ...st, status: 'in-progress' } : st));
