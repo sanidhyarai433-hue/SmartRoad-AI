@@ -1600,6 +1600,7 @@ def update_user_complaint_draft(report_id: int, payload: dict = Body(...), reque
         changes["description"] = str(payload.get("description") or "").strip()[:2000]
     if "location" in payload:
         changes["location"] = str(payload.get("location") or "").strip()[:500]
+        changes["road_name"] = str(payload.get("location") or "").strip()[:500]
     if "lat" in payload or "lng" in payload:
         try:
             lat, lng = float(payload.get("lat")), float(payload.get("lng"))
