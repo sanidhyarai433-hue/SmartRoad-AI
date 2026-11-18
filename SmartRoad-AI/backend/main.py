@@ -1119,8 +1119,8 @@ async def detect_video(
             if auth_token and not no_potholes_video:
                 # award 20 coins for video reports that contain detections
                 credit_user_by_token(auth_token, 20, { 'report_id': report.get('id'), 'type': 'video', 'detections': len(unique_detections) })
-        except Exception:
-            pass
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Could not save the video complaint: {str(e)}")
         return {
             "success": True,
             "message": ("No potholes detected" if no_potholes_video else f"Video detection completed - Found {len(unique_detections)} unique potholes"),
