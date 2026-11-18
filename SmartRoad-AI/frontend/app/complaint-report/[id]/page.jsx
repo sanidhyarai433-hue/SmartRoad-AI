@@ -7,6 +7,7 @@ const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrend
 const textOr = value => value === null || value === undefined || String(value).trim() === "" ? "Not Provided" : String(value);
 const dateText = value => value ? new Date(value).toLocaleString() : "Not Provided";
 const mapUrl = (lat, lng) => {
+  if (lat === null || lat === undefined || lng === null || lng === undefined || lat === "" || lng === "") return null;
   const x = Number(lng), y = Number(lat);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   const d = 0.003;
