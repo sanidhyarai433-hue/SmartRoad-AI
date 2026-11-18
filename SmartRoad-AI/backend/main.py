@@ -17,6 +17,8 @@ import uuid
 import urllib.request
 import io
 import zipfile
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, JSON, select, update, func
+from sqlalchemy.engine import make_url
 
 # Initialize the app
 app = FastAPI(title="SmartRoad API", version="1.0.0")
@@ -65,8 +67,87 @@ dashboard_data = {
     "minor": 0,
     "moderate": 0,
     "major": 0,
-    "reports": []   # store full report objects
-}  
+    "reports": []
+}
+
+# Persistent complaint storage.
+# Configure DATABASE_URL with a managed PostgreSQL database in production
+# (Render PostgreSQL). SQLite is retained for local development only.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./smartroad_local.db")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
+_db_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+db_engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=_db_connect_args)
+db_metadata = MetaData()
+complaints_table = Table(
+    "smartroad_complaints",
+    db_metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("uploader_id", String(128), index=True),
+    Column("created_at", String(40), index=True),
+    Column("payload", JSON, nullable=False),
+)
+db_metadata.create_all(db_engine)
+
+
+def load_persisted_reports():
+    with db_engine.connect() as connection:
+        rows = connection.execute(
+            select(complaints_table.c.payload).order_by(complaints_table.c.id.asc())
+        ).scalars().all()
+    return [dict(row) for row in rows]
+
+
+def persist_report(report):
+    """Insert a complaint and return it with its database-assigned ID."""
+    payload = dict(report)
+    payload.pop("id", None)
+    with db_engine.begin() as connection:
+        result = connection.execute(
+            complaints_table.insert().values(
+                uploader_id=str(payload.get("uploader_id") or ""),
+                created_at=str(payload.get("timestamp") or datetime.now().isoformat()),
+                payload=payload,
+            )
+        )
+        report_id = result.inserted_primary_key[0]
+        payload["id"] = report_id
+        connection.execute(
+            complaints_table.update()
+            .where(complaints_table.c.id == report_id)
+            .values(payload=payload)
+        )
+    return payload
+
+
+def update_persisted_report(report_id, changes):
+    """Update a complaint's JSON payload without losing its other fields."""
+    with db_engine.begin() as connection:
+        row = connection.execute(
+            select(complaints_table.c.payload).where(complaints_table.c.id == report_id)
+        ).first()
+        if not row:
+            return None
+        payload = dict(row[0])
+        payload.update(changes)
+        connection.execute(
+            complaints_table.update()
+            .where(complaints_table.c.id == report_id)
+            .values(
+                uploader_id=str(payload.get("uploader_id") or ""),
+                created_at=str(payload.get("timestamp") or ""),
+                payload=payload,
+            )
+        )
+    return payload
+
+
+# Restore reports after every process restart/deployment.
+dashboard_data["reports"] = load_persisted_reports()
+
 
 # Ensure results folders exist
 os.makedirs(os.path.join(os.getcwd(), "results", "images"), exist_ok=True)
@@ -420,7 +501,7 @@ async def detect_image(
             uploader = None
 
         report = {
-            "id": len(dashboard_data["reports"]) + 1,
+            "id": None,
             "type": "image",
             "source": "user",
             "location": location_str,
@@ -444,7 +525,7 @@ async def detect_image(
         if len(detections) == 0:
             report["note"] = "No potholes detected in the submitted image."
 
-        dashboard_data["reports"].append(report)
+        report = persist_report(report)\n        dashboard_data["reports"].append(report)
        
        
         # Credit coins to user if authenticated and detections found
@@ -1150,6 +1231,7 @@ def update_report_status(report_id: int, payload: dict = Body(...)):
             except Exception:
                 pass
 
+            update_persisted_report(int(report_id), r)
             return {"success": True, "message": "Report updated", "report": r}
 
     return JSONResponse(status_code=404, content={"success": False, "message": "Report not found"})
