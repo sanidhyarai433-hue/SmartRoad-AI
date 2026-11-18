@@ -1507,19 +1507,22 @@ def create_contractor(payload: dict = Body(...)):
     name = str(payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Contractor name is required")
+    contractor_email = str(payload.get("email") or "").strip().lower()
+    if "@" not in contractor_email or "." not in contractor_email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="A valid contractor email is required for portal login")
     contractor_id = "CTR-" + uuid.uuid4().hex[:8].upper()
     password = str(payload.get("password") or "")
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Portal password must contain at least 8 characters")
     salt, pwd_hash = hash_password(password)
-    if any(str(row.get("email", "")).lower() == str(payload.get("email") or "").strip().lower() for row in get_contractors()["data"] if row.get("email")):
+    if any(str(row.get("email", "")).lower() == contractor_email for row in get_contractors()["data"] if row.get("email")):
         raise HTTPException(status_code=409, detail="A contractor with this email already exists")
     contractor = {
         "contractor_id": contractor_id,
         "name": name,
         "company": str(payload.get("company") or "").strip(),
         "phone": str(payload.get("phone") or "").strip(),
-        "email": str(payload.get("email") or "").strip(),
+        "email": contractor_email,
         "service_area": str(payload.get("service_area") or "").strip(),
         "specialization": str(payload.get("specialization") or "Road repair").strip(),
         "status": "Active",
