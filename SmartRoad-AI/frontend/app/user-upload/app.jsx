@@ -482,7 +482,6 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
         <button className="btn-ghost" onClick={share}>{copied ? "✓ Copied!" : <>{I.share()} Share</>}</button>
       </div>
     </div>
-    </div>
   );
 }
 
