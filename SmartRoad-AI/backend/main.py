@@ -157,7 +157,8 @@ def _find_duplicate_master(report, radius_m=35):
     from math import radians, sin, cos, asin, sqrt
     # Read from the database rather than process memory so reports created by
     # another API worker are included in duplicate checks.
-    for existing in load_persisted_reports():
+    persisted_reports = load_persisted_reports()
+    for existing in persisted_reports:
         if int(existing.get("detections", 0) or 0) <= 0:
             continue
         if str(existing.get("status", "")).lower() in {
@@ -174,7 +175,7 @@ def _find_duplicate_master(report, radius_m=35):
         if distance <= radius_m:
             master_id = existing.get("duplicate_of") or existing.get("id")
             master = next(
-                (item for item in dashboard_data.get("reports", []) if str(item.get("id")) == str(master_id)),
+                (item for item in persisted_reports if str(item.get("id")) == str(master_id)),
                 existing,
             )
             return master, round(distance, 1)
@@ -188,7 +189,11 @@ def persist_report(report):
     payload["road_segment_id"] = payload.get("road_segment_id") or _road_segment_id(
         payload.get("lat"), payload.get("lng")
     )
-    master, duplicate_distance = _find_duplicate_master(payload)
+    # Pending drafts do not join operational duplicate groups until submitted.
+    if str(payload.get("submission_status") or "").lower() == "draft":
+        master, duplicate_distance = None, None
+    else:
+        master, duplicate_distance = _find_duplicate_master(payload)
     if master:
         payload["duplicate_group_id"] = master.get("duplicate_group_id") or f"DUP-{master.get('id')}"
         payload["duplicate_of"] = master.get("id")
@@ -1678,6 +1683,8 @@ def submit_user_complaint(report_id: int, request: Request):
         raise HTTPException(status_code=403, detail="You cannot submit another user's report.")
     if str(report.get("submission_status") or "").lower() != "draft":
         return {"success": True, "message": "This complaint has already been submitted.", "data": report}
+    # Match duplicates only at official submission time, not while a draft is pending.
+    master, duplicate_distance = _find_duplicate_master(report)
     now = datetime.now().isoformat()
     history = list(report.get("history") or [])
     history.append({"status": "Submitted", "previous_status": "Pending Submission", "message": "Official road-damage complaint submitted by the citizen.", "timestamp": now, "actor": "Citizen", "visibility": "public"})
@@ -1692,6 +1699,16 @@ def submit_user_complaint(report_id: int, request: Request):
         "uploader_phone": user.get("phone") or None,
     })
     if updated and int(updated.get("detections", 0) or 0) > 0:
+        if master:
+            master_id = int(master.get("id"))
+            group_id = master.get("duplicate_group_id") or f"DUP-{master_id}"
+            linked_ids = list(master.get("linked_report_ids") or [])
+            if report_id not in linked_ids:
+                linked_ids.append(report_id)
+            update_persisted_report(master_id, {"duplicate_group_id": group_id, "linked_report_ids": linked_ids, "duplicate_count": len(linked_ids) + 1})
+            updated = update_persisted_report(report_id, {"duplicate_group_id": group_id, "duplicate_of": master_id, "duplicate_match_distance_m": duplicate_distance})
+        elif updated.get("lat") is not None and updated.get("lng") is not None:
+            updated = update_persisted_report(report_id, {"duplicate_group_id": f"DUP-{report_id}", "duplicate_of": None})
         reward = 20 if updated.get("type") == "video" else 10
         credit_user_by_token(token, reward, {"report_id": report_id, "type": updated.get("type", "image"), "detections": updated.get("detections", 0)})
     dashboard_data["reports"] = load_persisted_reports()
