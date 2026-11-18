@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
 const STATUS_LABELS = {
@@ -24,6 +25,7 @@ const statusText = status => STATUS_LABELS[status] || status || "Status unavaila
 const isClosed = status => ["Completed", "Resolved", "Rejected", "False Image/Rejected", "Duplicate"].includes(status);
 
 export default function MyComplaintsPage() {
+  const router = useRouter();
   const [reports, setReports] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [filter, setFilter] = useState("All");
@@ -117,14 +119,20 @@ export default function MyComplaintsPage() {
           <Link href="/user-upload" style={{display:"inline-block",marginTop:12,color:"#65c9ee"}}>Report a road issue →</Link>
         </section> : filtered.length===0 ? <section style={styles.panel}>No complaints in this category.</section> : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,330px),1fr))",gap:18,alignItems:"start"}}>
           <section style={{display:"grid",gap:10}}>
-            {filtered.map(report=><button key={report.id} onClick={()=>setSelectedId(report.id)} style={{...styles.panel,textAlign:"left",cursor:"pointer",borderColor:String(selected?.id)===String(report.id)?"#38bdf8":"rgba(148,181,215,.15)",background:String(selected?.id)===String(report.id)?"rgba(8,74,111,.45)":"rgba(13,31,52,.88)"}}>
+            {filtered.map(report=><button key={report.id} onClick={()=>router.push(`/complaint-report/${report.id}`)} style={{...styles.panel,textAlign:"left",cursor:"pointer",borderColor:String(selected?.id)===String(report.id)?"#38bdf8":"rgba(148,181,215,.15)",background:String(selected?.id)===String(report.id)?"rgba(8,74,111,.45)":"rgba(13,31,52,.88)"}}>
               <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
                 <strong>SR-{String(report.id).padStart(5,"0")}</strong>
                 <span style={{fontSize:11,padding:"5px 9px",borderRadius:20,background:isClosed(report.status)?"rgba(34,197,94,.15)":"rgba(56,189,248,.14)",color:isClosed(report.status)?"#86efac":"#7dd3fc"}}>{statusText(report.status)}</span>
               </div>
-              <div style={{fontWeight:600,margin:"12px 0 6px"}}>{report.description || report.location || "Road damage report"}</div>
-              <div style={{...styles.muted,fontSize:12}}>Submitted {dateText(report.timestamp)}</div>
+              <div style={{fontWeight:600,margin:"12px 0 6px"}}>{report.road_name || report.location || "Road damage report"}</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:12,marginBottom:7}}>
+                <span style={{color:"#7dd3fc"}}>{report.damage_type || "Road damage"}</span>
+                <span style={{color:report.priority==="Major"||report.priority==="Critical"?"#fca5a5":"#fcd34d"}}>{report.priority || (report.severity?.Major ? "Major" : report.severity?.Moderate ? "Moderate" : report.severity?.Minor ? "Minor" : "Not classified")}</span>
+                <span style={styles.muted}>{Number(report.detections || 0)} detection(s)</span>
+              </div>
+              <div style={{...styles.muted,fontSize:12}}>Submitted {dateText(report.submitted_at || report.timestamp)}</div>
               <div style={{...styles.muted,fontSize:12,marginTop:6}}>Last update: {dateText(report.history?.[report.history.length-1]?.timestamp || report.timestamp)}</div>
+              <div style={{color:"#67e8f9",fontSize:12,fontWeight:700,marginTop:10}}>Open complete official report →</div>
             </button>)}
           </section>
 
