@@ -39,6 +39,7 @@ export default function RoadPriorityPage() {
   const [form, setForm] = useState({ name: "", company: "", phone: "", email: "", password: "", service_area: "", specialization: "Road repair" });
   const [credentialPasswords, setCredentialPasswords] = useState({});
   const [assignments, setAssignments] = useState({});
+  const [triageForms, setTriageForms] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +76,48 @@ export default function RoadPriorityPage() {
       await request("/admin/contractors", { method: "POST", body: JSON.stringify(form) });
       setForm({ name: "", company: "", phone: "", email: "", password: "", service_area: "", specialization: "Road repair" });
       setNotice("Contractor registered successfully.");
+      await load();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  function updateTriage(incidentId, key, value) {
+    setTriageForms(current => ({ ...current, [incidentId]: { ...current[incidentId], [key]: value } }));
+  }
+
+  async function saveTriage(incident) {
+    const form = triageForms[incident.incident_id] || {};
+    if (!form.department?.trim() || !form.authority?.trim()) {
+      setError("Enter the responsible department and authority before saving triage.");
+      return;
+    }
+    if (form.priority_override && (form.priority_override_reason || "").trim().length < 8) {
+      setError("A priority override needs a reason of at least 8 characters.");
+      return;
+    }
+    const numeric = ["safety_risk", "traffic_exposure", "road_importance"];
+    for (const key of numeric) {
+      if (form[key] !== undefined && form[key] !== "" && (!Number.isFinite(Number(form[key])) || Number(form[key]) < 0 || Number(form[key]) > 100)) {
+        setError("Risk inputs must be numbers between 0 and 100.");
+        return;
+      }
+    }
+    setSaving(true); setError(""); setNotice("");
+    try {
+      await request(`/admin/priority/incidents/${incident.incident_id}/triage`, {
+        method: "POST",
+        body: JSON.stringify({
+          department: form.department,
+          authority: form.authority,
+          safety_risk: form.safety_risk === "" ? undefined : form.safety_risk,
+          traffic_exposure: form.traffic_exposure === "" ? undefined : form.traffic_exposure,
+          road_importance: form.road_importance === "" ? undefined : form.road_importance,
+          priority_override: form.priority_override || undefined,
+          priority_override_reason: form.priority_override_reason || undefined,
+          clear_priority_override: !form.priority_override && Boolean(incident.priority_override),
+        }),
+      });
+      setNotice(`Municipal triage saved for ${incident.incident_id}.`);
       await load();
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
@@ -172,17 +215,37 @@ export default function RoadPriorityPage() {
                       <div style={{ color: "#8da0ba", fontSize: 11, letterSpacing: 1 }}>RANK #{incident.rank} · {incident.incident_id}</div>
                       <h3 style={{ margin: "6px 0", fontSize: 18 }}>{incident.location}</h3>
                       <div style={styles.muted}>{incident.description || "No additional description"} · {incident.supporting_reports} supporting report(s) · {incident.severity} damage</div>
+                      <div style={{ ...styles.muted, fontSize: 11, marginTop: 5 }}>Department: {incident.department || "Unassigned"} · Authority: {incident.authority || "Unassigned"}</div>
                     </div>
                     <div style={{ textAlign: "right", minWidth: 100 }}>
                       <div style={{ color: priorityColor(incident.priority_band), fontWeight: 800, fontSize: 13 }}>{incident.priority_band}</div>
                       <div style={{ fontSize: 28, fontWeight: 800 }}>{incident.priority_score}<span style={{ fontSize: 12, color: "#8da0ba" }}>/100</span></div>
+                      <div style={{ fontSize: 10, color: incident.sla?.sla_status === "Overdue" ? "#fb7185" : "#86efac", marginTop: 4 }}>{incident.sla?.sla_status || "SLA not set"}{incident.sla?.escalation_level ? ` · Escalation L${incident.sla.escalation_level}` : ""}</div>
                     </div>
                   </div>
                   <div style={{ height: 6, background: "#1e293b", borderRadius: 99, overflow: "hidden", margin: "14px 0" }}><div style={{ width: `${incident.priority_score}%`, height: "100%", background: priorityColor(incident.priority_band) }} /></div>
                   <details style={{ color: "#a9bad1", fontSize: 12, marginBottom: 13 }}>
                     <summary style={{ cursor: "pointer" }}>Why is this ranked #{incident.rank}?</summary>
                     <ul>{(incident.priority_reasons || []).map((reason, i) => <li key={i} style={{ marginTop: 5 }}>{reason}</li>)}</ul>
+                    <p>Weighted components: {Object.entries(incident.priority_components || {}).map(([key, value]) => `${key.replaceAll("_", " ")} ${value}`).join(" · ") || "Not available"}</p>
+                    <p>Verified external risk factors: {incident.priority_data_quality?.verified_factor_count ?? 0}/3. Unverified factors use neutral defaults.</p>
+                    {incident.priority_override_reason && <p>Municipal override: {incident.priority_override} — {incident.priority_override_reason}</p>}
                     <p>Linked report IDs: {(incident.report_ids || []).join(", ")}</p>
+                  </details>
+                  <details style={{ margin: "0 0 13px", border: "1px solid #30425f", borderRadius: 10, padding: 12, color: "#cbd5e1" }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 700 }}>Municipal triage · department, risk inputs & priority override</summary>
+                    {(() => {
+                      const form = triageForms[incident.incident_id] || {};
+                      const field = (key, fallback) => form[key] !== undefined ? form[key] : fallback;
+                      return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, marginTop: 12 }}>
+                        <div><label style={styles.label}>Responsible department</label><select style={styles.input} value={field("department", incident.department === "Unassigned" ? "Roads & Infrastructure" : incident.department)} onChange={e => updateTriage(incident.incident_id, "department", e.target.value)}>{["Roads & Infrastructure","Public Works Department","Municipal Engineering","Traffic & Transport","Drainage & Stormwater","Emergency Response"].map(x => <option key={x}>{x}</option>)}</select></div>
+                        <div><label style={styles.label}>Responsible authority / office</label><input style={styles.input} value={field("authority", incident.authority === "Unassigned" ? "Municipal Engineering" : incident.authority)} onChange={e => updateTriage(incident.incident_id, "authority", e.target.value)} placeholder="Municipal / PWD office" /></div>
+                        {[[ "safety_risk","Safety risk (0–100)" ],[ "traffic_exposure","Traffic exposure (0–100)" ],[ "road_importance","Road importance (0–100)" ]].map(([key,label]) => <div key={key}><label style={styles.label}>{label}</label><input type="number" min="0" max="100" style={styles.input} placeholder="Leave blank = neutral default" value={field(key, "")} onChange={e => updateTriage(incident.incident_id,key,e.target.value)} /></div>)}
+                        <div><label style={styles.label}>Override priority (optional)</label><select style={styles.input} value={field("priority_override", incident.priority_override || "")} onChange={e => updateTriage(incident.incident_id,"priority_override",e.target.value)}><option value="">Use calculated priority</option>{["Low","Moderate","High","Critical"].map(x => <option key={x}>{x}</option>)}</select></div>
+                        <div><label style={styles.label}>Override justification (required for override)</label><input style={styles.input} value={field("priority_override_reason", incident.priority_override_reason || "")} onChange={e => updateTriage(incident.incident_id,"priority_override_reason",e.target.value)} placeholder="Explain the municipal decision" /></div>
+                        <div style={{ display: "flex", alignItems: "end" }}><button disabled={saving} onClick={() => saveTriage(incident)} style={{ ...styles.button, width: "100%" }}>Save municipal triage</button></div>
+                      </div>;
+                    })()}
                   </details>
                   {incident.status === "Site Verification" && (
                     <div style={{ background: "#211b3a", border: "1px solid #5b4a91", borderRadius: 10, padding: 13, marginBottom: 12 }}>
@@ -204,7 +267,7 @@ export default function RoadPriorityPage() {
                   ) : (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 9, alignItems: "end" }}>
                       <div><label style={styles.label}>Select contractor</label><select style={styles.input} value={assignments[incident.incident_id]?.contractor_id || ""} onChange={e => setAssignments(v => ({ ...v, [incident.incident_id]: { ...v[incident.incident_id], contractor_id: e.target.value } }))}><option value="">Choose contractor…</option>{contractors.filter(c => c.status === "Active").map(c => <option key={c.contractor_id} value={c.contractor_id}>{c.name}{c.company ? ` · ${c.company}` : ""}</option>)}</select></div>
-                      <div><label style={styles.label}>Target completion date</label><input type="date" style={styles.input} value={assignments[incident.incident_id]?.deadline || ""} onChange={e => setAssignments(v => ({ ...v, [incident.incident_id]: { ...v[incident.incident_id], deadline: e.target.value } }))} /></div>
+                      <div><label style={styles.label}>Target completion date (optional SLA default)</label><input type="date" style={styles.input} value={assignments[incident.incident_id]?.deadline || ""} onChange={e => setAssignments(v => ({ ...v, [incident.incident_id]: { ...v[incident.incident_id], deadline: e.target.value } }))} /><div style={{ ...styles.muted, fontSize: 10, marginTop: 4 }}>Critical 24h · High 72h · Moderate 7d · Low 14d</div></div>
                       <div><label style={styles.label}>Work order reference</label><input style={styles.input} placeholder="Optional reference" value={assignments[incident.incident_id]?.work_order || ""} onChange={e => setAssignments(v => ({ ...v, [incident.incident_id]: { ...v[incident.incident_id], work_order: e.target.value } }))} /></div>
                       <button style={styles.button} disabled={saving || contractors.length === 0} onClick={() => assign(incident)}>Assign repair job →</button>
                     </div>
