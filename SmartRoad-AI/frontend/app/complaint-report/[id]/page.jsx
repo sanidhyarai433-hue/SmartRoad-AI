@@ -263,6 +263,7 @@ export default function ComplaintReportPage() {
             {field("State", report.state || geoAddress.state)}
             {field("PIN code", report.pin_code || geoAddress.pin)}
             {field("Location capture", report.location_resolution)}
+            {field("Location captured at", report.location_captured_at)}
           </div>}
           {map ? <div style={{ marginTop: 16 }}>
             <iframe title="Complaint location map" src={map} style={{ width: "100%", height: 250, border: 0, borderRadius: 10 }} loading="lazy" />
