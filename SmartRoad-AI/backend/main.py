@@ -670,6 +670,7 @@ async def detect_image(
         if len(detections) == 0:
             report["note"] = "No potholes detected in the submitted image."
         report = persist_report(report)
+        no_potholes = len(detections) == 0
         return {
             "success": True,
             "message": "No potholes detected" if no_potholes else "Image detection completed",
