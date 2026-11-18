@@ -521,6 +521,7 @@ export default function SmartRoadReport() {
 
   const submit = async () => {
     if (!canSubmit || requestLock.current) return;
+    if (!localStorage.getItem("sr_token")) { setError("Please sign in before running AI detection so the draft report can be linked to your account."); return; }
     requestLock.current = true;
     setSubmitting(true); setError(""); setProgress(0);
     setSteps([
@@ -541,8 +542,6 @@ export default function SmartRoadReport() {
     const authToken = typeof window !== "undefined" ? localStorage.getItem("sr_token") : null;
     if (authToken) fd.append("token", authToken);
     const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90000);
     try {
       const data = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -584,7 +583,6 @@ export default function SmartRoadReport() {
       setResult(null);
       setSteps(current => current.map(step => step.status === "in-progress" ? { ...step, status: "failed" } : step));
     } finally {
-      clearTimeout(timeout);
       setSubmitting(false);
       requestLock.current = false;
     }
