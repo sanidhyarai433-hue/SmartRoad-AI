@@ -328,11 +328,11 @@ function LocationPicker({ location, onLocation }) {
       markerRef.current.on("dragend", async () => {
         const p = markerRef.current.getLatLng();
         const r = await revGeo(p.lat, p.lng);
-        onLocation({ lat:p.lat, lng:p.lng, road:r });
+        onLocation({ lat:p.lat, lng:p.lng, road:r, captured_at:new Date().toISOString() });
       });
     }
     mapInst.current.flyTo([lat,lng], 16, { duration:1.4 });
-    onLocation({ lat, lng, road });
+    onLocation({ lat, lng, road, captured_at:new Date().toISOString() });
   };
 
   const revGeo = async (lat, lng) => {
@@ -544,6 +544,7 @@ export default function SmartRoadReport() {
     fd.append("longitude", String(location.lng));
     fd.append("description", description);
     fd.append("road_name", location.road || "");
+    fd.append("location_captured_at", location.captured_at || new Date().toISOString());
     if (critical) fd.append("is_critical", "true");
     if (severity) fd.append("severity", severity);
     const authToken = typeof window !== "undefined" ? localStorage.getItem("sr_token") : null;
