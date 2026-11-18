@@ -40,6 +40,8 @@ const INITIAL_STATS = {
 };
 
 const STATUS_COLORS = {
+  "Submitted": { bg: "rgba(14,165,233,0.16)", text: "#7dd3fc", border: "rgba(14,165,233,0.35)" },
+  "Pending Submission": { bg: "rgba(245,158,11,0.15)", text: "#fbbf24", border: "rgba(245,158,11,0.35)" },
   "In Review": { bg: "rgba(59,130,246,0.18)", text: "#60a5fa", border: "rgba(59,130,246,0.4)" },
   "In Progress": { bg: "rgba(59,130,246,0.12)", text: "#60a5fa", border: "rgba(59,130,246,0.3)" },
   "Under Review": { bg: "rgba(251,191,36,0.15)", text: "#fbbf24", border: "rgba(251,191,36,0.4)" },
@@ -1133,7 +1135,16 @@ export default function App() {
             major: d.major || 0,
             active_reports: Array.isArray(d.reports) ? d.reports.length : (d.active_reports || 0),
           });
-          setReports(Array.isArray(d.reports) ? d.reports : []);
+          const normalizedReports = (Array.isArray(d.reports) ? d.reports : []).map(report => ({
+            ...report,
+            type: String(report.type || "image").toLowerCase() === "video" ? "Video" : "Image",
+            severity: {
+              minor: Number(report.severity?.minor ?? report.severity?.Minor ?? 0),
+              moderate: Number(report.severity?.moderate ?? report.severity?.Moderate ?? 0),
+              major: Number(report.severity?.major ?? report.severity?.Major ?? 0),
+            },
+          }));
+          setReports(normalizedReports);
           setBackendOnline(true);
           const now = new Date();
           setLastUpdated(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`);
