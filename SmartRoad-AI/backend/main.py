@@ -1575,6 +1575,7 @@ def get_user_complaint(report_id: int, request: Request):
         raise HTTPException(status_code=403, detail="You do not have access to this complaint.")
     report.pop("image_path", None)
     report.pop("video_path", None)
+    report.pop("admin_notes", None)
     return {"success": True, "data": report}
 
 
