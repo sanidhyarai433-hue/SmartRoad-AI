@@ -1614,6 +1614,51 @@ def update_user_complaint_draft(report_id: int, payload: dict = Body(...), reque
     return {"success": True, "data": report}
 
 
+@app.post("/user/complaints/{report_id}/evidence")
+async def add_user_complaint_evidence(report_id: int, file: UploadFile = File(...), request: Request = None):
+    """Attach additional validated image evidence to an existing citizen complaint."""
+    header = request.headers.get("authorization", "") if request else ""
+    token = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else ""
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in to attach evidence.")
+    with db_engine.connect() as connection:
+        row = connection.execute(select(complaints_table.c.payload).where(complaints_table.c.id == report_id)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Complaint report not found.")
+    report = dict(row[0])
+    if str(report.get("uploader_id") or "") != str(user.get("id")):
+        raise HTTPException(status_code=403, detail="You cannot add evidence to another user's complaint.")
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The evidence file is empty.")
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Evidence exceeds the 10 MB limit.")
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(status_code=400, detail="Upload an image in JPG, PNG or WebP format.")
+    decoded = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
+    if decoded is None or decoded.shape[0] < 32 or decoded.shape[1] < 32:
+        raise HTTPException(status_code=400, detail="The evidence image is invalid or too small.")
+    filename = f"{uuid.uuid4().hex}{extension}"
+    destination = os.path.join(RESULTS_DIR, "images", filename)
+    with open(destination, "wb") as output_file:
+        output_file.write(contents)
+    attachment = {
+        "file_name": file.filename or filename,
+        "image_url": f"/results/images/{filename}",
+        "uploaded_at": datetime.now().isoformat(),
+        "uploaded_by": user.get("name") or "Citizen",
+        "size_bytes": len(contents),
+    }
+    attachments = list(report.get("attachments") or [])
+    attachments.append(attachment)
+    updated = update_persisted_report(report_id, {"attachments": attachments})
+    updated.pop("image_path", None)
+    return {"success": True, "message": "Additional evidence attached.", "data": attachment}
+
+
+
 @app.post("/user/complaints/{report_id}/submit")
 def submit_user_complaint(report_id: int, request: Request):
     header = request.headers.get("authorization", "")
