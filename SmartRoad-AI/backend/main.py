@@ -1479,6 +1479,7 @@ def _build_priority_incidents():
             "status": first.get("status") or "In Review",
             "contractor": first.get("contractor"),
             "assignment": first.get("assignment"),
+            "contractor_work": first.get("contractor_work") or {},
             "reports": items,
         })
     incidents.sort(key=lambda item: item["priority_score"], reverse=True)
@@ -1694,7 +1695,7 @@ async def contractor_upload_evidence(incident_id: str, request: Request, evidenc
 
 
 @app.post("/contractor/jobs/{incident_id}/status")
-def contractor_update_job_status(incident_id: str, payload: dict = Body(...), request: Request = None):
+def contractor_update_job_status(incident_id: str, request: Request, payload: dict = Body(...)):
     contractor = _contractor_from_request(request)
     action = str(payload.get("action") or "").lower()
     allowed = {"accept", "start", "submit_for_verification"}
