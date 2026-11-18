@@ -419,6 +419,16 @@ function DetectionResult({ result, location, onReset }) {
         <p style={{ color:"#94a3b8", fontSize:".875rem", marginTop:".3rem" }}>Your report is submitted and AI analysis complete</p>
       </div>
 
+      {result.complaint?.id && (
+        <div style={{ background:"rgba(8,126,174,.12)", border:"1px solid rgba(56,189,248,.28)", borderRadius:".9rem", padding:"1rem 1.1rem" }}>
+          <p style={{ color:"#7dd3fc", fontSize:".65rem", fontWeight:700, letterSpacing:".09em", textTransform:"uppercase" }}>Complaint successfully saved</p>
+          <p style={{ color:"#fff", fontFamily:"var(--fd)", fontSize:"1.25rem", fontWeight:800, marginTop:".3rem" }}>SR-{String(result.complaint.id).padStart(5,"0")}</p>
+          {result.complaint.road_segment_id && <p style={{ color:"#94a3b8", fontSize:".72rem", marginTop:".25rem" }}>Road segment: {result.complaint.road_segment_id}</p>}
+          {result.complaint.duplicate_of && <p style={{ color:"#fbbf24", fontSize:".75rem", marginTop:".4rem" }}>Linked to an existing nearby road issue to prevent duplicate repair work.</p>}
+          <a href="/my-complaints" style={{ display:"inline-block", color:"#7dd3fc", fontSize:".8rem", marginTop:".65rem", textDecoration:"none" }}>Track this complaint →</a>
+        </div>
+      )}
+
       {/* Coins */}
       <div className="coin-row">
         <div style={{ display:"flex", alignItems:"center", gap:".75rem" }}>
@@ -594,7 +604,21 @@ export default function SmartRoadReport() {
 
       setProgress(100);
       await new Promise(r => setTimeout(r, 350));
-      setResult(data);
+      const detectionRows = Array.isArray(data.detections) ? data.detections : [];
+      const severityBreakdown = data.statistics?.severity_breakdown || {
+        Minor: detectionRows.filter(item => item.severity === "Minor").length,
+        Moderate: detectionRows.filter(item => item.severity === "Moderate").length,
+        Major: detectionRows.filter(item => item.severity === "Major").length,
+      };
+      const severity = severityBreakdown.Major > 0 ? "Major" : severityBreakdown.Moderate > 0 ? "Moderate" : "Minor";
+      const confidenceValues = detectionRows.map(item => Number(item.confidence)).filter(Number.isFinite);
+      setResult({
+        ...data,
+        total_detections: data.statistics?.total_detections ?? detectionRows.length,
+        severity_breakdown: severityBreakdown,
+        severity: detectionRows.length ? severity : "Not detected",
+        confidence: confidenceValues.length ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length : null,
+      });
 
       // final steps
       setSteps(s => s.map(st => st.id === 'update' ? { ...st, status: 'done' } : st));
