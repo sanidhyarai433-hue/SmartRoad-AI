@@ -1,43 +1,43 @@
 function Team() {
   const members = [
     {
-      name: 'Prem Kumar',
-      role: 'Team Leader',
-      emoji: '👨‍💻',
-      desc: 'Leads project vision, architecture decisions, and system integration. Coordinates between all workstreams to deliver cohesive AI solutions.',
-      skills: ['System Architecture', 'AI Strategy', 'Project Management'],
+      name: 'Shravani Holla M',
+      role: 'Team Lead',
+      emoji: '👩‍💼',
+      desc: 'Leads the SmartRoad AI team, coordinates project activities, and drives the overall vision and execution of the solution.',
+      skills: ['Team Leadership', 'Coordination', 'Project Planning'],
       color: '#3b82f6'
     },
     {
-      name: 'Nishu Singh',
-      role: 'Co-Lead',
-      emoji: '👩‍🔬',
-      desc: 'Drives research methodology, dataset curation, and model performance benchmarking. Ensures AI outputs meet real-world accuracy standards.',
-      skills: ['Research Design', 'Data Curation', 'Model Evaluation'],
+      name: 'Sanidhya Rai',
+      role: 'Co-Lead · Technical & Backend Lead',
+      emoji: '👩‍💻',
+      desc: 'Leads technical development and backend engineering, oversees system architecture, and drives AI/ML integration across the platform.',
+      skills: ['Backend Development', 'System Architecture', 'AI/ML Integration'],
       color: '#8b5cf6'
     },
     {
-      name: 'Priyanshu Yadav',
-      role: 'Research & Technical Contributor',
-      emoji: '🧠',
-      desc: 'Deep dives into computer vision algorithms, fine-tuning detection models, and documenting technical specifications for reproducibility.',
-      skills: ['Computer Vision', 'Deep Learning', 'Documentation'],
+      name: 'Shreya',
+      role: 'Frontend & UI Support',
+      emoji: '🎨',
+      desc: 'Supports the development and refinement of the user interface, helping make SmartRoad AI clear, accessible, and easy to use.',
+      skills: ['Frontend Support', 'UI Design', 'Responsive Layouts'],
       color: '#06b6d4'
     },
     {
-      name: 'Nirbhay Kumar',
-      role: 'Implementation & Testing',
-      emoji: '🔧',
-      desc: 'Responsible for end-to-end system deployment, QA testing across edge cases, and performance optimization in production environments.',
-      skills: ['DevOps', 'QA Testing', 'Performance Tuning'],
+      name: 'Avani Prabhu',
+      role: 'Research & Documentation',
+      emoji: '📚',
+      desc: 'Supports project research, organizes technical information, and prepares clear documentation and presentation materials.',
+      skills: ['Research', 'Documentation', 'Presentation'],
       color: '#10b981'
     },
     {
-      name: 'Jayram Kumar',
-      role: 'Frontend & Integration',
-      emoji: '🎨',
-      desc: 'Crafts the user-facing interfaces and ensures seamless integration between AI backend services and the municipal reporting dashboard.',
-      skills: ['UI Development', 'API Integration', 'Responsive Design'],
+      name: 'Vasudev',
+      role: 'Testing & Integration Support',
+      emoji: '🧪',
+      desc: 'Assists with testing project features, checking workflows, and supporting integration to improve overall reliability.',
+      skills: ['Testing', 'Quality Checks', 'Integration Support'],
       color: '#f59e0b'
     }
   ]
@@ -48,7 +48,7 @@ function Team() {
         <div className="section-header">
           <span className="section-tag">The People</span>
           <h2 className="section-title">Meet the <span className="accent">Team</span></h2>
-          <p className="section-subtitle">Four dedicated engineers united by a mission to make Indian roads safer through the power of artificial intelligence.</p>
+          <p className="section-subtitle">A collaborative team working to make Indian roads safer through the power of artificial intelligence.</p>
         </div>
         <div className="cards-grid cards-5">
           {members.map((m, i) => (
