@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    GLOBAL CSS  (injected into <head> once)
@@ -383,16 +384,11 @@ function LocationPicker({ location, onLocation }) {
 /* ─────────────────────────────────────────────────────────────────────────────
    DETECTION RESULT CARD
 ───────────────────────────────────────────────────────────────────────────── */
-function DetectionResult({ result, location, onReset }) {
+function DetectionResult({ result, location, onReset, onConfirm }) {
   const [copied, setCopied] = useState(false);
 
-  const priorities = {
-    major:    "🔴 High priority — scheduled for repair within 7 days",
-    critical: "🚨 Emergency — flagged for immediate inspection",
-    moderate: "🟡 Medium priority — repair estimated within 30 days",
-    minor:    "🟢 Low priority — added to the maintenance queue",
-  };
-  const priority = priorities[result.severity?.toLowerCase()] || "📋 Report submitted to the maintenance queue";
+  const priorities = { major: "Major — high priority", critical: "Critical — immediate attention requested", moderate: "Moderate — normal priority", minor: "Minor — low priority" };
+  const priority = priorities[result.severity?.toLowerCase()] || "Priority based on available detection evidence";
   const bdMax = result.severity_breakdown ? Math.max(...Object.values(result.severity_breakdown), 1) : 1;
   const bdColors = { minor:"#10b981", moderate:"#f59e0b", major:"#ef4444" };
 
@@ -412,37 +408,18 @@ function DetectionResult({ result, location, onReset }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:"1rem" }}>
 
-      {/* Thank-you */}
       <div className="ty-banner">
-        <span className="ty-emoji">🎉</span>
-        <h2 style={{ fontFamily:"var(--fd)", fontSize:"1.65rem", fontWeight:800, color:"#fff" }}>Thank You, Volunteer!</h2>
-        <p style={{ color:"#94a3b8", fontSize:".875rem", marginTop:".3rem" }}>Your report is submitted and AI analysis complete</p>
+        <span className="ty-emoji">✓</span>
+        <h2 style={{ fontFamily:"var(--fd)", fontSize:"1.55rem", fontWeight:800, color:"#fff" }}>AI inspection complete</h2>
+        <p style={{ color:"#94a3b8", fontSize:".875rem", marginTop:".3rem" }}>Review the actual model output, then confirm to prepare your official complaint.</p>
       </div>
-
       {result.complaint?.id && (
         <div style={{ background:"rgba(8,126,174,.12)", border:"1px solid rgba(56,189,248,.28)", borderRadius:".9rem", padding:"1rem 1.1rem" }}>
-          <p style={{ color:"#7dd3fc", fontSize:".65rem", fontWeight:700, letterSpacing:".09em", textTransform:"uppercase" }}>Complaint successfully saved</p>
+          <p style={{ color:"#7dd3fc", fontSize:".65rem", fontWeight:700, letterSpacing:".09em", textTransform:"uppercase" }}>Draft report · not submitted</p>
           <p style={{ color:"#fff", fontFamily:"var(--fd)", fontSize:"1.25rem", fontWeight:800, marginTop:".3rem" }}>SR-{String(result.complaint.id).padStart(5,"0")}</p>
-          {result.complaint.road_segment_id && <p style={{ color:"#94a3b8", fontSize:".72rem", marginTop:".25rem" }}>Road segment: {result.complaint.road_segment_id}</p>}
-          {result.complaint.duplicate_of && <p style={{ color:"#fbbf24", fontSize:".75rem", marginTop:".4rem" }}>Linked to an existing nearby road issue to prevent duplicate repair work.</p>}
-          <a href="/my-complaints" style={{ display:"inline-block", color:"#7dd3fc", fontSize:".8rem", marginTop:".65rem", textDecoration:"none" }}>Track this complaint →</a>
+          <p style={{ color:"#94a3b8", fontSize:".75rem", marginTop:".3rem" }}>This report remains a draft until you submit the official complaint.</p>
         </div>
       )}
-
-      {/* Coins */}
-      <div className="coin-row">
-        <div style={{ display:"flex", alignItems:"center", gap:".75rem" }}>
-          <div style={{ width:42, height:42, borderRadius:"50%", background:"rgba(245,158,11,.14)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.3rem" }}>🪙</div>
-          <div>
-            <p style={{ color:"#fcd34d", fontWeight:600, fontSize:".875rem" }}>SR Coins Earned</p>
-            <p style={{ color:"#78350f", fontSize:".72rem" }}>Added to your volunteer wallet</p>
-          </div>
-        </div>
-        <div style={{ textAlign:"right" }}>
-          <p style={{ fontFamily:"var(--fd)", fontSize:"2.1rem", fontWeight:800, color:"#fbbf24", lineHeight:1 }}>+50</p>
-          <p style={{ color:"#78350f", fontSize:".65rem", marginTop:2 }}>SR Coins</p>
-        </div>
-      </div>
 
       {/* Annotated image */}
       {result.image_with_detections && (
@@ -499,11 +476,12 @@ function DetectionResult({ result, location, onReset }) {
         <p style={{ color:"#94a3b8", fontSize:".825rem", paddingTop:".7rem", borderTop:"1px solid rgba(71,100,132,.2)" }}>{priority}</p>
       </div>
 
-      {/* Actions */}
-      <div style={{ display:"flex", gap:".75rem" }}>
-        <button className="btn-grad" style={{ flex:1 }} onClick={onReset}>{I.send()} Submit Another</button>
+      <div style={{ display:"flex", gap:".75rem", flexWrap:"wrap" }}>
+        <button className="btn-grad" style={{ flex:"1 1 220px" }} onClick={onConfirm}>Confirm &amp; Return →</button>
+        <button className="btn-ghost" onClick={onReset}>Cancel / Start over</button>
         <button className="btn-ghost" onClick={share}>{copied ? "✓ Copied!" : <>{I.share()} Share</>}</button>
       </div>
+    </div>
     </div>
   );
 }
@@ -523,6 +501,8 @@ export default function SmartRoadReport() {
   const [steps,       setSteps]       = useState([]);
   const [result,      setResult]      = useState(null);
   const [error,       setError]       = useState("");
+  const requestLock = useRef(false);
+  const router = useRouter();
 
   const isVideo   = file?.type.startsWith("video/");
   const canSubmit = !!file && !!location && !submitting;
@@ -537,100 +517,69 @@ export default function SmartRoadReport() {
 
   const reset = () => {
     setFile(null); setLocation(null); setDescription(""); setCaption("");
-    setCritical(false); setSeverity(""); setResult(null); setError(""); setProgress(0);
+    setCritical(false); setSeverity(""); setResult(null); setError(""); setProgress(0); setSteps([]); requestLock.current = false;
   };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || requestLock.current) return;
+    requestLock.current = true;
     setSubmitting(true); setError(""); setProgress(0);
-    // Prepare step list and reset
-    const baseSteps = [
-      { id: 'upload', label: 'Uploading file', status: 'pending' },
-      { id: 'send', label: 'Sending to backend', status: 'pending' },
-      { id: 'detect', label: 'Detecting potholes', status: 'pending' },
-      { id: 'count', label: 'Counting / frame-by-frame', status: 'pending' },
-      { id: 'update', label: 'Updating admin panel', status: 'pending' },
-      { id: 'save', label: 'Saving results', status: 'pending' },
-    ];
-    setSteps(baseSteps);
-
+    setSteps([
+      { id: "upload", label: "Uploading image", status: "in-progress" },
+      { id: "analyze", label: "Analyzing road surface", status: "pending" },
+      { id: "detect", label: "Detecting potholes and damage", status: "pending" },
+      { id: "severity", label: "Calculating severity", status: "pending" },
+      { id: "results", label: "Generating results", status: "pending" },
+    ]);
     const fd = new FormData();
     fd.append("file", file);
-    // Match the FastAPI form fields so the backend saves the road location correctly.
     fd.append("latitude", String(location.lat));
     fd.append("longitude", String(location.lng));
     fd.append("description", [location.road, description].filter(Boolean).join(" — "));
     if (critical) fd.append("is_critical", "true");
     if (severity) fd.append("severity", severity);
-
-    // Associate this report with the signed-in citizen for My Complaints tracking.
     const authToken = typeof window !== "undefined" ? localStorage.getItem("sr_token") : null;
     if (authToken) fd.append("token", authToken);
-
-    let iv;
-    if (isVideo) iv = setInterval(() => setProgress(p => Math.min(p + Math.random()*9, 90)), 380);
-
+    const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
     try {
-      // mark upload started
-      setSteps(s => s.map(st => st.id === 'upload' ? { ...st, status: 'in-progress' } : st));
-
-      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
-      const endpoint = isVideo ? "/detect/video" : "/detect/image";
-      const res = await fetch(`${backendBase}${endpoint}`, {
+      const responsePromise = fetch(`${backendBase}/detect/image`, {
         method: "POST",
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-        body: fd
+        body: fd,
+        signal: controller.signal,
       });
-
-      // sent
-      setSteps(s => s.map(st => st.id === 'upload' ? { ...st, status: 'done' } : st));
-      setSteps(s => s.map(st => st.id === 'send' ? { ...st, status: 'in-progress' } : st));
-
+      setSteps(current => current.map(step => step.id === "upload" ? { ...step, status: "done" } : step.id === "analyze" ? { ...step, status: "in-progress" } : step));
+      const res = await responsePromise;
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.success === false) throw new Error(data.detail || data.message || `Backend request failed (${res.status})`);
-      // backend detection stage
-      setSteps(s => s.map(st => st.id === 'send' ? { ...st, status: 'done' } : st));
-      setSteps(s => s.map(st => st.id === 'detect' ? { ...st, status: 'in-progress' } : st));
-
-      // simulate counting frames for video
-      if (isVideo) {
-        setSteps(s => s.map(st => st.id === 'count' ? { ...st, status: 'in-progress' } : st));
-        await new Promise(r => setTimeout(r, 700 + Math.random()*800));
-        setSteps(s => s.map(st => st.id === 'count' ? { ...st, status: 'done' } : st));
-      }
-
-      setSteps(s => s.map(st => st.id === 'detect' ? { ...st, status: 'done' } : st));
-      setSteps(s => s.map(st => st.id === 'update' ? { ...st, status: 'in-progress' } : st));
-
-      setProgress(100);
-      await new Promise(r => setTimeout(r, 350));
+      if (!res.ok || data.success === false) throw new Error(data.detail || data.message || `AI inspection failed (${res.status})`);
+      setSteps(current => current.map(step => ["analyze", "detect", "severity"].includes(step.id) ? { ...step, status: "done" } : step.id === "results" ? { ...step, status: "in-progress" } : step));
       const detectionRows = Array.isArray(data.detections) ? data.detections : [];
       const severityBreakdown = data.statistics?.severity_breakdown || {
         Minor: detectionRows.filter(item => item.severity === "Minor").length,
         Moderate: detectionRows.filter(item => item.severity === "Moderate").length,
         Major: detectionRows.filter(item => item.severity === "Major").length,
       };
-      const severity = severityBreakdown.Major > 0 ? "Major" : severityBreakdown.Moderate > 0 ? "Moderate" : "Minor";
+      const derivedSeverity = critical ? "Critical" : severityBreakdown.Major > 0 ? "Major" : severityBreakdown.Moderate > 0 ? "Moderate" : severityBreakdown.Minor > 0 ? "Minor" : "Not detected";
       const confidenceValues = detectionRows.map(item => Number(item.confidence)).filter(Number.isFinite);
       setResult({
         ...data,
         total_detections: data.statistics?.total_detections ?? detectionRows.length,
         severity_breakdown: severityBreakdown,
-        severity: detectionRows.length ? severity : "Not detected",
+        severity: derivedSeverity,
         confidence: confidenceValues.length ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length : null,
       });
-
-      // final steps
-      setSteps(s => s.map(st => st.id === 'update' ? { ...st, status: 'done' } : st));
-      setSteps(s => s.map(st => st.id === 'save' ? { ...st, status: 'done' } : st));
+      setSteps(current => current.map(step => step.id === "results" ? { ...step, status: "done" } : step));
+      setProgress(100);
     } catch (err) {
-      // Do not show a fake success result when the backend did not save the complaint.
-      setError(err.message || "The report could not be submitted. Please try again.");
+      setError(err.name === "AbortError" ? "AI inspection timed out after 90 seconds. Check your connection and try again." : (err.message || "The AI inspection could not be completed. Please try again."));
       setResult(null);
-      setSteps(s => s.map(st => st.id === 'save' ? { ...st, status: 'failed' } : st));
+      setSteps(current => current.map(step => step.status === "in-progress" ? { ...step, status: "failed" } : step));
     } finally {
-      clearInterval(iv);
+      clearTimeout(timeout);
       setSubmitting(false);
+      requestLock.current = false;
     }
   };
 
@@ -698,7 +647,10 @@ export default function SmartRoadReport() {
 
         {/* ── RESULT ── */}
         {result ? (
-          <div className="glass a-fadeup"><div className="gb"><DetectionResult result={result} location={location} onReset={reset} /></div></div>
+          <div className="glass a-fadeup"><div className="gb"><DetectionResult result={result} location={location} onReset={reset} onConfirm={() => {
+              if (!result.complaint?.id) { setError("The draft report could not be identified. Please run detection again."); return; }
+              router.push(`/complaint-report/${result.complaint.id}`);
+            }} /></div></div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:"1.1rem" }}>
 
@@ -714,7 +666,7 @@ export default function SmartRoadReport() {
                           <div style={{ width:10, height:10, borderRadius:999, background: st.status === 'done' ? '#34d399' : st.status === 'in-progress' ? '#06b6d4' : '#374151' }} />
                           <div style={{ color:'#e2e8f0', fontSize:'.9rem' }}>{st.label}</div>
                         </div>
-                        <div style={{ color:'#94a3b8', fontSize:'.78rem', fontFamily:'monospace' }}>{st.status === 'in-progress' ? 'in-progress' : st.status === 'done' ? 'done' : 'waiting'}</div>
+                        <div style={{ color: st.status === "failed" ? "#f87171" : "#94a3b8", fontSize: ".78rem", fontFamily: "monospace" }}>{st.status === "in-progress" ? "working…" : st.status === "done" ? "complete" : st.status === "failed" ? "failed" : "waiting"}</div>
                       </div>
                     ))}
                   </div>
