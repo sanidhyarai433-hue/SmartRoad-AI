@@ -67,7 +67,7 @@ except Exception as e:
 # Bounded cache for real outputs from identical image/model inputs.
 _IMAGE_DETECTION_CACHE = OrderedDict()
 _IMAGE_DETECTION_CACHE_LOCK = threading.Lock()
-_IMAGE_MODEL_LOCK = threading.Lock()
+_IMAGE_MODEL_LOCK = threading.RLock()
 _IMAGE_DETECTION_CACHE_MAX = 12
 
 
@@ -284,8 +284,9 @@ def get_severity_color(severity):
 
 # Helper function to detect potholes in frame/image
 def detect_potholes(image_array):
-    """Run YOLO detection on image and return results"""
-    results = model(image_array)
+    """Run thread-safe YOLO detection on image and return real model outputs."""
+    with _IMAGE_MODEL_LOCK:
+        results = model(image_array)
     detections = []
     # Allowed class names for potholes (update if your model uses a different label)
     ALLOWED_CLASSES = {"pothole", "potholes"}
