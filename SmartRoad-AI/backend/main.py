@@ -126,7 +126,9 @@ def _find_duplicate_master(report, radius_m=35):
         return None, None
 
     from math import radians, sin, cos, asin, sqrt
-    for existing in dashboard_data.get("reports", []):
+    # Read from the database rather than process memory so reports created by
+    # another API worker are included in duplicate checks.
+    for existing in load_persisted_reports():
         if int(existing.get("detections", 0) or 0) <= 0:
             continue
         if str(existing.get("status", "")).lower() in {
@@ -1430,10 +1432,17 @@ def get_user_complaints(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Please sign in to view your complaints.")
 
+    # Query the persistent store directly. A process-local dashboard cache
+    # can be stale when Render runs multiple workers or after a restart.
+    with db_engine.connect() as connection:
+        rows = connection.execute(
+            select(complaints_table.c.payload)
+            .where(complaints_table.c.uploader_id == str(user.get("id")))
+            .order_by(complaints_table.c.id.desc())
+        ).scalars().all()
+
     owned_reports = []
-    for report in dashboard_data.get("reports", []):
-        if str(report.get("uploader_id")) != str(user.get("id")):
-            continue
+    for report in rows:
         item = dict(report)
         history = item.get("history") or [{
             "status": item.get("status", "In Review"),
@@ -1449,7 +1458,10 @@ def get_user_complaints(request: Request):
         item.pop("video_path", None)
         owned_reports.append(item)
 
-    owned_reports.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+    owned_reports.sort(
+        key=lambda item: item.get("timestamp") or item.get("created_at") or "",
+        reverse=True,
+    )
     return {"success": True, "data": owned_reports, "count": len(owned_reports)}
 
 
