@@ -211,7 +211,14 @@ function SeverityBadge({ level }) {
 ───────────────────────────────────────────────────────────────────────────── */
 function UploadBox({ file, onFile, onRemove }) {
   const [drag, setDrag] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
   const ref = useRef();
+  useEffect(() => {
+    if (!file) { setPreviewUrl(null); return; }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
   const fmtSize = b => b < 1048576 ? `${(b/1024).toFixed(1)} KB` : `${(b/1048576).toFixed(1)} MB`;
 
   const pick = f => {
@@ -225,7 +232,7 @@ function UploadBox({ file, onFile, onRemove }) {
     return (
       <div className="a-slideup" style={{ borderRadius:"1.25rem", overflow:"hidden", border:"1px solid rgba(59,130,246,.28)", position:"relative" }}>
         {isVid
-          ? <video src={URL.createObjectURL(file)} controls style={{ width:"100%", maxHeight:280, objectFit:"cover", display:"block", background:"#0a1628" }} />
+          ? <video src={previewUrl} controls style={{ width:"100%", maxHeight:280, objectFit:"cover", display:"block", background:"#0a1628" }} />
           : <img src={URL.createObjectURL(file)} alt="preview" style={{ width:"100%", maxHeight:280, objectFit:"cover", display:"block" }} />
         }
         <div style={{ position:"absolute", inset:0, background:"linear-gradient(to top,rgba(4,13,26,.85),transparent 50%)" }} />
