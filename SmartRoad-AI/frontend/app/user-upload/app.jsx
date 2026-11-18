@@ -23,6 +23,7 @@ body{background:var(--bg);font-family:var(--fb);color:#f1f5f9}
 @keyframes pulse   {0%,100%{opacity:1}50%{opacity:.4}}
 @keyframes spin    {to{transform:rotate(360deg)}}
 @keyframes bar     {0%,100%{transform:scaleY(.45)}50%{transform:scaleY(1)}}
+@keyframes srIndeterminate {0%{transform:translateX(-120%)}100%{transform:translateX(300%)}}
 @keyframes coinIn  {from{opacity:0;transform:translateY(10px) scale(.88)}to{opacity:1;transform:translateY(0) scale(1)}}
 
 .a-fadeup {animation:fadeUp  .55s ease both}
@@ -503,7 +504,6 @@ export default function SmartRoadReport() {
   const [critical,    setCritical]    = useState(false);
   const [severity,    setSeverity]    = useState("");
   const [submitting,  setSubmitting]  = useState(false);
-  const [progress,    setProgress]    = useState(0);
   const [steps,       setSteps]       = useState([]);
   const [result,      setResult]      = useState(null);
   const [error,       setError]       = useState("");
@@ -523,14 +523,14 @@ export default function SmartRoadReport() {
 
   const reset = () => {
     setFile(null); setLocation(null); setDescription(""); setCaption("");
-    setCritical(false); setSeverity(""); setResult(null); setError(""); setProgress(0); setSteps([]); requestLock.current = false;
+    setCritical(false); setSeverity(""); setResult(null); setError(""); setSteps([]); requestLock.current = false;
   };
 
   const submit = async () => {
     if (!canSubmit || requestLock.current) return;
     if (!localStorage.getItem("sr_token")) { setError("Please sign in before running AI detection so the draft report can be linked to your account."); return; }
     requestLock.current = true;
-    setSubmitting(true); setError(""); setProgress(0);
+    setSubmitting(true); setError("");
     setSteps([
       { id: "upload", label: isVideo ? "Uploading video" : "Uploading image", status: "in-progress" },
       { id: "analyze", label: isVideo ? "Analyzing road video" : "Analyzing road surface", status: "pending" },
@@ -585,7 +585,6 @@ export default function SmartRoadReport() {
         confidence: confidenceValues.length ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length : null,
       });
       setSteps(current => current.map(step => step.id === "results" ? { ...step, status: "done" } : step));
-      setProgress(100);
     } catch (err) {
       setError(err.name === "AbortError" ? "AI inspection timed out after 90 seconds. Check your connection and try again." : (err.message || "The AI inspection could not be completed. Please try again."));
       setResult(null);
@@ -754,20 +753,17 @@ export default function SmartRoadReport() {
               </div>
             </Sec>
 
-            {/* Video progress */}
+            {/* Indeterminate video activity indicator; no invented percentage. */}
             {submitting && isVideo && (
               <div className="glass a-slideup">
                 <div className="gb">
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:".55rem" }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:".55rem" }}>
-                      <div style={{ display:"flex", gap:3, alignItems:"flex-end", height:18 }}>
-                        {[12,17,10,15].map((h,i) => <div key={i} className="wbar" style={{ height:h }} />)}
-                      </div>
-                      <span style={{ color:"#94a3b8", fontSize:".82rem" }}>Processing video…</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:".55rem", marginBottom:".65rem" }}>
+                    <div style={{ display:"flex", gap:3, alignItems:"flex-end", height:18 }}>
+                      {[12,17,10,15].map((h,i) => <div key={i} className="wbar" style={{ height:h }} />)}
                     </div>
-                    <span style={{ color:"#06b6d4", fontSize:".82rem", fontFamily:"monospace" }}>{Math.round(progress)}%</span>
+                    <span style={{ color:"#94a3b8", fontSize:".82rem" }}>Processing video frames…</span>
                   </div>
-                  <div className="prog-track"><div className="prog-fill" style={{ width:`${progress}%` }} /></div>
+                  <div className="prog-track" style={{ overflow:"hidden" }}><div style={{ width:"34%", height:"100%", borderRadius:999, background:"linear-gradient(90deg,#06b6d4,#3b82f6)", animation:"srIndeterminate 1.35s ease-in-out infinite" }} /></div>
                 </div>
               </div>
             )}
