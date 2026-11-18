@@ -574,7 +574,7 @@ export default function SmartRoadReport() {
       // mark upload started
       setSteps(s => s.map(st => st.id === 'upload' ? { ...st, status: 'in-progress' } : st));
 
-      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "");
+      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
       const endpoint = isVideo ? "/detect/video" : "/detect/image";
       const res = await fetch(`${backendBase}${endpoint}`, {
         method: "POST",
