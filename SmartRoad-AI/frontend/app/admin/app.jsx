@@ -513,6 +513,7 @@ function ReportsPage({ reports }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterSource, setFilterSource] = useState("All");
   const [selectedReport, setSelectedReport] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [editStatus, setEditStatus] = useState("");
   const [editProgress, setEditProgress] = useState(0);
@@ -549,7 +550,26 @@ function ReportsPage({ reports }) {
     const a = document.createElement("a"); a.href = url; a.download = "smartroad_reports.csv"; a.click();
   };
 
-  const openReport = (r) => { setSelectedReport(r); setEditStatus(r.status); setEditProgress(r.progress); setNotes(""); };
+  const openReport = async (r) => {
+    setSelectedReport(r);
+    setEditStatus(r.status || "Submitted");
+    setEditProgress(r.progress || 0);
+    setNotes("");
+    setDetailLoading(true);
+    try {
+      const backend = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "");
+      const response = await fetch(`${backend}/admin/report/${r.id}`, { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.detail || "Could not load full complaint evidence.");
+      setSelectedReport(result.data);
+      setEditStatus(result.data.status || "Submitted");
+      setEditProgress(result.data.progress || 0);
+    } catch (error) {
+      alert(error.message || "Could not load complaint details.");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   if (selectedReport) {
     return (
@@ -560,6 +580,7 @@ function ReportsPage({ reports }) {
           fontFamily: "'Exo 2',sans-serif", fontSize: 12, marginBottom: 20, display: "flex", alignItems: "center", gap: 6
         }}>← Back to Reports</button>
 
+        {detailLoading && <div style={{ color: "#7dd3fc", fontSize: 12, marginBottom: 12 }}>Loading full complaint evidence…</div>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           {/* Media preview */}
           <GlassCard style={{ padding: 20 }}>
@@ -690,7 +711,7 @@ function ReportsPage({ reports }) {
               </div>
               <button onClick={async () => {
                 try {
-                  const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+                  const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai.onrender.com';
                   const endpoint = `${backend}/admin/report/${selectedReport?.id}/status`;
                   const body = { status: editStatus, progress: editProgress, notes };
                   const res = await fetch(endpoint, {
