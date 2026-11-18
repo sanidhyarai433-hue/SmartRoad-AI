@@ -746,7 +746,7 @@ async def detect_image_from_url(body: dict = Body(...), request: Request = None)
         if image is None:
             raise HTTPException(status_code=400, detail="Downloaded file is not a valid image")
 
-        detections = detect_potholes(image)
+        detections = await run_in_threadpool(detect_potholes, image)
         image_with_detections = draw_detections(image.copy(), detections)
         image_base64 = image_to_base64(image_with_detections)
 
@@ -836,7 +836,7 @@ async def detect_batch(
                 if image is None:
                     continue
 
-                detections = detect_potholes(image)
+                detections = await run_in_threadpool(detect_potholes, image)
                 annotated = draw_detections(image.copy(), detections)
                 annotated_b64 = image_to_base64(annotated)
 
@@ -978,7 +978,7 @@ async def detect_video(
             frame = cv2.resize(frame, (640, 480))
            
             # Detect potholes in this frame
-            frame_detections = detect_potholes(frame)
+            frame_detections = await run_in_threadpool(detect_potholes, frame)
 
             # Draw detections on a copy and write to annotated video for evidence
             try:
