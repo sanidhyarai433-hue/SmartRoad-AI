@@ -1507,6 +1507,12 @@ def create_contractor(payload: dict = Body(...)):
     if not name:
         raise HTTPException(status_code=400, detail="Contractor name is required")
     contractor_id = "CTR-" + uuid.uuid4().hex[:8].upper()
+    password = str(payload.get("password") or "")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Portal password must contain at least 8 characters")
+    salt, pwd_hash = hash_password(password)
+    if any(str(row.get("email", "")).lower() == str(payload.get("email") or "").strip().lower() for row in get_contractors()["data"] if row.get("email")):
+        raise HTTPException(status_code=409, detail="A contractor with this email already exists")
     contractor = {
         "contractor_id": contractor_id,
         "name": name,
@@ -1516,6 +1522,9 @@ def create_contractor(payload: dict = Body(...)):
         "service_area": str(payload.get("service_area") or "").strip(),
         "specialization": str(payload.get("specialization") or "Road repair").strip(),
         "status": "Active",
+        "salt": salt,
+        "pwd_hash": pwd_hash,
+        "token": None,
         "created_at": datetime.now().isoformat(),
     }
     with db_engine.begin() as connection:
@@ -1576,3 +1585,172 @@ def unassign_incident_contractor(incident_id: str):
         update_persisted_report(int(report_id), {"contractor": None, "assignment": None, "status": "In Review", "progress": 25})
     dashboard_data["reports"] = load_persisted_reports()
     return {"success": True, "message": "Contractor assignment removed"}
+
+
+# ============== CONTRACTOR SELF-SERVICE PORTAL ==============
+def _contractor_from_request(request: Request):
+    header = request.headers.get("authorization", "")
+    token = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Contractor login required")
+    with db_engine.connect() as connection:
+        rows = connection.execute(select(contractors_table.c.payload)).scalars().all()
+    contractor = next((dict(row) for row in rows if row.get("token") == token and row.get("status") == "Active"), None)
+    if not contractor:
+        raise HTTPException(status_code=401, detail="Contractor session expired. Please sign in again.")
+    return contractor
+
+
+def _safe_contractor(contractor):
+    return {key: value for key, value in contractor.items() if key not in {"salt", "pwd_hash", "token"}}
+
+
+def _save_contractor(contractor):
+    with db_engine.begin() as connection:
+        connection.execute(
+            contractors_table.update()
+            .where(contractors_table.c.contractor_id == contractor["contractor_id"])
+            .values(payload=contractor)
+        )
+
+
+@app.post("/contractor/auth/login")
+def contractor_login(email: str = Form(...), password: str = Form(...)):
+    email = (email or "").strip().lower()
+    with db_engine.connect() as connection:
+        rows = connection.execute(select(contractors_table.c.payload)).scalars().all()
+    contractor = next((dict(row) for row in rows if str(row.get("email", "")).lower() == email), None)
+    if not contractor or not contractor.get("pwd_hash") or not verify_password(password, contractor.get("salt", ""), contractor.get("pwd_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid contractor email or password")
+    if contractor.get("status") != "Active":
+        raise HTTPException(status_code=403, detail="This contractor account is inactive")
+    contractor["token"] = uuid.uuid4().hex
+    _save_contractor(contractor)
+    return {"success": True, "message": "Signed in", "data": {"token": contractor["token"], "contractor": _safe_contractor(contractor)}}
+
+
+@app.get("/contractor/auth/me")
+def contractor_me(request: Request):
+    contractor = _contractor_from_request(request)
+    return {"success": True, "data": _safe_contractor(contractor)}
+
+
+@app.get("/contractor/jobs")
+def contractor_jobs(request: Request):
+    contractor = _contractor_from_request(request)
+    jobs = []
+    for incident in _build_priority_incidents():
+        assignment = incident.get("assignment") or {}
+        if assignment.get("contractor_id") != contractor.get("contractor_id"):
+            continue
+        work = (incident.get("reports") or [{}])[0].get("contractor_work") or {}
+        incident["contractor_work"] = work
+        incident.pop("reports", None)
+        jobs.append(incident)
+    jobs.sort(key=lambda job: (job.get("assignment") or {}).get("deadline") or "9999-12-31")
+    return {"success": True, "count": len(jobs), "data": jobs}
+
+
+@app.post("/contractor/jobs/{incident_id}/evidence")
+async def contractor_upload_evidence(incident_id: str, request: Request, evidence_type: str = Form(...), file: UploadFile = File(...)):
+    contractor = _contractor_from_request(request)
+    if evidence_type not in {"before", "after"}:
+        raise HTTPException(status_code=400, detail="Evidence type must be before or after")
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident or (incident.get("assignment") or {}).get("contractor_id") != contractor["contractor_id"]:
+        raise HTTPException(status_code=404, detail="Assigned repair job not found")
+    content = await file.read()
+    if not content or len(content) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Upload an image smaller than 12 MB")
+    content_type = (file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image evidence is accepted")
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+        extension = ".jpg" if "jpeg" in content_type else ".png" if "png" in content_type else ".webp"
+    evidence_dir = os.path.join(RESULTS_DIR, "contractor_evidence")
+    os.makedirs(evidence_dir, exist_ok=True)
+    filename = f"{incident_id}_{evidence_type}_{uuid.uuid4().hex}{extension}"
+    with open(os.path.join(evidence_dir, filename), "wb") as output:
+        output.write(content)
+    evidence = {
+        "type": evidence_type,
+        "url": f"/results/contractor_evidence/{filename}",
+        "filename": filename,
+        "uploaded_at": datetime.now().isoformat(),
+        "uploaded_by": contractor["contractor_id"],
+    }
+    for report_id in incident["report_ids"]:
+        report = update_persisted_report(int(report_id), {})
+        if report:
+            work = dict(report.get("contractor_work") or {})
+            evidence_items = list(work.get("evidence") or [])
+            evidence_items.append(evidence)
+            work["evidence"] = evidence_items
+            work["updated_at"] = datetime.now().isoformat()
+            update_persisted_report(int(report_id), {"contractor_work": work})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": f"{evidence_type.title()} repair evidence uploaded", "data": evidence}
+
+
+@app.post("/contractor/jobs/{incident_id}/status")
+def contractor_update_job_status(incident_id: str, payload: dict = Body(...), request: Request = None):
+    contractor = _contractor_from_request(request)
+    action = str(payload.get("action") or "").lower()
+    allowed = {"accept", "start", "submit_for_verification"}
+    if action not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported job action")
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident or (incident.get("assignment") or {}).get("contractor_id") != contractor["contractor_id"]:
+        raise HTTPException(status_code=404, detail="Assigned repair job not found")
+    reports = incident.get("reports") or []
+    existing_work = dict(reports[0].get("contractor_work") or {}) if reports else {}
+    evidence = existing_work.get("evidence") or []
+    if action == "submit_for_verification" and not any(item.get("type") == "after" for item in evidence):
+        raise HTTPException(status_code=400, detail="Upload an after-repair photo before submitting this job")
+    if action == "accept":
+        status, progress, label = "Accepted", 40, "Accepted"
+    elif action == "start":
+        status, progress, label = "In Progress", 65, "Work Started"
+    else:
+        status, progress, label = "Site Verification", 90, "Submitted for Verification"
+    work = {**existing_work, "status": label, "updated_at": datetime.now().isoformat(), "contractor_note": str(payload.get("note") or "").strip()}
+    for report_id in incident["report_ids"]:
+        update_persisted_report(int(report_id), {"status": status, "progress": progress, "contractor_work": work})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": f"Job {label.lower()}", "data": {"incident_id": incident_id, "status": status, "progress": progress}}
+
+
+@app.post("/admin/priority/incidents/{incident_id}/verify")
+def admin_verify_repair(incident_id: str, payload: dict = Body(...)):
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    approved = bool(payload.get("approved"))
+    note = str(payload.get("note") or "").strip()
+    status = "Completed" if approved else "In Progress"
+    progress = 100 if approved else 65
+    work = dict((incident.get("reports") or [{}])[0].get("contractor_work") or {})
+    work.update({"status": "Verified" if approved else "Rework Requested", "verification_note": note, "verified_at": datetime.now().isoformat()})
+    for report_id in incident["report_ids"]:
+        update_persisted_report(int(report_id), {"status": status, "progress": progress, "contractor_work": work})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Repair verified" if approved else "Rework requested", "data": {"incident_id": incident_id, "status": status, "contractor_work": work}}
+
+
+@app.post("/admin/contractors/{contractor_id}/credentials")
+def set_contractor_credentials(contractor_id: str, payload: dict = Body(...)):
+    password = str(payload.get("password") or "")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Portal password must contain at least 8 characters")
+    with db_engine.connect() as connection:
+        row = connection.execute(select(contractors_table.c.payload).where(contractors_table.c.contractor_id == contractor_id)).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Contractor not found")
+    contractor = dict(row[0])
+    if not contractor.get("email"):
+        raise HTTPException(status_code=400, detail="Add an email address to this contractor first")
+    salt, pwd_hash = hash_password(password)
+    contractor.update({"salt": salt, "pwd_hash": pwd_hash, "token": None})
+    _save_contractor(contractor)
+    return {"success": True, "message": "Contractor portal credentials saved"}
