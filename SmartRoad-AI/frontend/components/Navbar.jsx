@@ -120,6 +120,15 @@ function Navbar() {
             {/* Team */}
             <li><button onClick={() => scrollTo('team-section')} className="nav-btn-link">Team</button></li>
 
+            {/* ── Citizen complaint tracking ── */}
+            {user && (
+              <li>
+                <a href="/my-complaints" className="nav-btn-link" onClick={() => setMenuOpen(false)}>
+                  My Complaints
+                </a>
+              </li>
+            )}
+
             {/* ── Sign In / User avatar ── */}
             <li>
               {user ? (

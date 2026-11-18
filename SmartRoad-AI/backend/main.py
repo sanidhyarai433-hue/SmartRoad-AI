@@ -1105,8 +1105,17 @@ def update_report_status(report_id: int, payload: dict = Body(...)):
         if r.get("id") == int(report_id):
             # update fields
             new_status = payload.get("status")
-            if new_status:
+            if new_status and new_status != r.get("status"):
+                previous_status = r.get("status", "Submitted")
                 r["status"] = new_status
+                r.setdefault("history", []).append({
+                    "status": new_status,
+                    "previous_status": previous_status,
+                    "message": payload.get("notes") or f"Complaint status changed to {new_status}.",
+                    "timestamp": datetime.now().isoformat(),
+                    "actor": "Municipal admin",
+                    "visibility": "public"
+                })
             if payload.get("progress") is not None:
                 try:
                     r["progress"] = int(payload.get("progress", r.get("progress", 0)))
@@ -1135,6 +1144,41 @@ def update_report_status(report_id: int, payload: dict = Body(...)):
             return {"success": True, "message": "Report updated", "report": r}
 
     return JSONResponse(status_code=404, content={"success": False, "message": "Report not found"})
+
+
+
+# ============== CITIZEN COMPLAINT TRACKING ==============
+
+@app.get("/user/complaints")
+def get_user_complaints(request: Request):
+    """Return only the reports owned by the authenticated citizen."""
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.split(" ", 1)[1].strip() if auth_header.lower().startswith("bearer ") else ""
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in to view your complaints.")
+
+    owned_reports = []
+    for report in dashboard_data.get("reports", []):
+        if str(report.get("uploader_id")) != str(user.get("id")):
+            continue
+        item = dict(report)
+        history = item.get("history") or [{
+            "status": item.get("status", "In Review"),
+            "message": "Your complaint was received and is awaiting review.",
+            "timestamp": item.get("timestamp"),
+            "actor": "System",
+            "visibility": "public"
+        }]
+        item["history"] = [event for event in history if event.get("visibility", "public") == "public"]
+        # Never expose private admin notes or filesystem paths to citizens.
+        item.pop("admin_notes", None)
+        item.pop("image_path", None)
+        item.pop("video_path", None)
+        owned_reports.append(item)
+
+    owned_reports.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+    return {"success": True, "data": owned_reports, "count": len(owned_reports)}
 
 
 # ============== AUTH ENDPOINTS ==============
