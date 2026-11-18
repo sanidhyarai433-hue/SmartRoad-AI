@@ -36,7 +36,8 @@ export default function RoadPriorityPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", company: "", phone: "", email: "", service_area: "", specialization: "Road repair" });
+  const [form, setForm] = useState({ name: "", company: "", phone: "", email: "", password: "", service_area: "", specialization: "Road repair" });
+  const [credentialPasswords, setCredentialPasswords] = useState({});
   const [assignments, setAssignments] = useState({});
 
   const load = useCallback(async () => {
@@ -72,7 +73,7 @@ export default function RoadPriorityPage() {
     setSaving(true); setError(""); setNotice("");
     try {
       await request("/admin/contractors", { method: "POST", body: JSON.stringify(form) });
-      setForm({ name: "", company: "", phone: "", email: "", service_area: "", specialization: "Road repair" });
+      setForm({ name: "", company: "", phone: "", email: "", password: "", service_area: "", specialization: "Road repair" });
       setNotice("Contractor registered successfully.");
       await load();
     } catch (e) { setError(e.message); }
@@ -89,6 +90,31 @@ export default function RoadPriorityPage() {
         body: JSON.stringify({ contractor_id: selection.contractor_id, deadline: selection.deadline || null, work_order: selection.work_order || "", notes: selection.notes || "" }),
       });
       setNotice(`Repair job ${incident.incident_id} assigned.`);
+      await load();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function saveContractorPassword(contractor) {
+    const password = credentialPasswords[contractor.contractor_id] || "";
+    if (password.length < 8) { setError("Portal password must contain at least 8 characters."); return; }
+    setSaving(true); setError(""); setNotice("");
+    try {
+      await request(`/admin/contractors/${contractor.contractor_id}/credentials`, { method: "POST", body: JSON.stringify({ password }) });
+      setCredentialPasswords(v => ({ ...v, [contractor.contractor_id]: "" }));
+      setNotice(`Portal access configured for ${contractor.name}.`);
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function verifyRepair(incident, approved) {
+    const note = window.prompt(approved ? "Verification note (optional):" : "Explain what needs to be corrected:");
+    if (note === null) return;
+    if (!approved && !note.trim()) { setError("A rework instruction is required."); return; }
+    setSaving(true); setError(""); setNotice("");
+    try {
+      await request(`/admin/priority/incidents/${incident.incident_id}/verify`, { method: "POST", body: JSON.stringify({ approved, note }) });
+      setNotice(approved ? "Repair verified and marked completed." : "Rework requested from contractor.");
       await load();
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
@@ -158,6 +184,18 @@ export default function RoadPriorityPage() {
                     <ul>{(incident.priority_reasons || []).map((reason, i) => <li key={i} style={{ marginTop: 5 }}>{reason}</li>)}</ul>
                     <p>Linked report IDs: {(incident.report_ids || []).join(", ")}</p>
                   </details>
+                  {incident.status === "Site Verification" && (
+                    <div style={{ background: "#211b3a", border: "1px solid #5b4a91", borderRadius: 10, padding: 13, marginBottom: 12 }}>
+                      <strong style={{ color: "#c4b5fd" }}>Repair submitted — municipal verification required</strong>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                        {(incident.contractor_work?.evidence || []).map((item, index) => <a key={index} href={API + item.url} target="_blank" rel="noreferrer"><img src={API + item.url} alt={item.type + " repair evidence"} style={{ width: 100, height: 76, objectFit: "cover", borderRadius: 7 }} /><div style={{ color: "#c4b5fd", fontSize: 11, textAlign: "center" }}>{item.type} photo</div></a>)}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                        <button disabled={saving} onClick={() => verifyRepair(incident, true)} style={{ ...styles.button, background: "#166534" }}>Approve repair</button>
+                        <button disabled={saving} onClick={() => verifyRepair(incident, false)} style={{ ...styles.button, background: "#9a3412" }}>Request rework</button>
+                      </div>
+                    </div>
+                  )}
                   {incident.assignment ? (
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", background: "#102b28", borderRadius: 9, padding: 12 }}>
                       <div><strong style={{ color: "#86efac" }}>Assigned to {incident.assignment.contractor_name}</strong><div style={{ ...styles.muted, fontSize: 12 }}>Deadline: {incident.assignment.deadline || "Not set"} · Work order: {incident.assignment.work_order || "—"}</div></div>
@@ -187,13 +225,14 @@ export default function RoadPriorityPage() {
               ["name", "Contractor contact name", true],
               ["company", "Company / agency", false],
               ["phone", "Phone number", false],
-              ["email", "Email", false],
+              ["email", "Portal login email", true],
+              ["password", "Initial portal password (8+ characters)", true],
               ["service_area", "Service area / ward", false],
               ["specialization", "Specialization", false],
-            ].map(([key, label, required]) => <div key={key}><label style={styles.label}>{label}</label><input required={required} style={styles.input} value={form[key]} onChange={e => updateForm(key, e.target.value)} placeholder={label} /></div>)}
+            ].map(([key, label, required]) => <div key={key}><label style={styles.label}>{label}</label><input required={required} minLength={key === "password" ? 8 : undefined} type={key === "password" ? "password" : key === "email" ? "email" : "text"} style={styles.input} value={form[key]} onChange={e => updateForm(key, e.target.value)} placeholder={label} /></div>)}
             <div style={{ display: "flex", alignItems: "end" }}><button type="submit" disabled={saving} style={{ ...styles.button, width: "100%" }}>{saving ? "Saving…" : "+ Register contractor"}</button></div>
           </form>
-          {contractors.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 18 }}>{contractors.map(c => <div key={c.contractor_id} style={{ border: "1px solid #263852", borderRadius: 10, padding: 12 }}><strong>{c.name}</strong><div style={{ ...styles.muted, fontSize: 12 }}>{c.company || "Independent contractor"} · {c.service_area || "Area not specified"}</div><div style={{ ...styles.muted, fontSize: 12, marginTop: 5 }}>{c.phone || c.email || "No contact details"}</div></div>)}</div>}
+          {contractors.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 18 }}>{contractors.map(c => <div key={c.contractor_id} style={{ border: "1px solid #263852", borderRadius: 10, padding: 12 }}><strong>{c.name}</strong><div style={{ ...styles.muted, fontSize: 12 }}>{c.company || "Independent contractor"} · {c.service_area || "Area not specified"}</div><div style={{ ...styles.muted, fontSize: 12, marginTop: 5 }}>{c.phone || c.email || "No contact details"}</div><div style={{ marginTop: 10 }}><input type="password" minLength={8} placeholder="Set / reset portal password" style={styles.input} value={credentialPasswords[c.contractor_id] || ""} onChange={e => setCredentialPasswords(v => ({ ...v, [c.contractor_id]: e.target.value }))} /><button disabled={saving || !c.email} onClick={() => saveContractorPassword(c)} style={{ ...styles.button, width: "100%", marginTop: 7 }}>Configure portal access</button></div></div>)}</div>}
         </section>
         <p style={{ ...styles.muted, fontSize: 11, marginTop: 18 }}>MVP note: GPS clustering and priority scores are decision-support estimates. Safety, traffic and road-importance values currently use neutral defaults unless supplied by verified data. An authorised municipal officer must validate priorities and contractor eligibility.</p>
       </div>
