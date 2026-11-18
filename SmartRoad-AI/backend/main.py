@@ -127,6 +127,8 @@ def _find_duplicate_master(report, radius_m=35):
 
     from math import radians, sin, cos, asin, sqrt
     for existing in dashboard_data.get("reports", []):
+        if int(existing.get("detections", 0) or 0) <= 0:
+            continue
         if str(existing.get("status", "")).lower() in {
             "completed", "resolved", "closed", "rejected", "false image/rejected"
         }:
@@ -289,6 +291,8 @@ def detect_potholes(image_array):
                 "confidence": round(conf, 2),
                 "area": area,
                 "severity": severity,
+                "severity_basis": "bounding_box_pixel_area_heuristic",
+                "review_required": conf < 0.50,
                 "width": width,
                 "height": height
             })
@@ -631,6 +635,8 @@ async def detect_image(
             "uploader_id": uploader.get('id') if uploader else None,
             "uploader_name": uploader.get('name') if uploader else "Anonymous",
             "verified": bool(uploader),
+            "ai_review_required": any(d.get("review_required") for d in detections),
+            "severity_method": "bounding_box_pixel_area_heuristic_not_physical_measurement",
         }
 
         # If no detections, add a note so frontends can display a friendly message
@@ -884,15 +890,22 @@ async def detect_video(
         os.makedirs(artifacts_dir, exist_ok=True)
         os.makedirs(os.path.join(artifacts_dir, "thumbs"), exist_ok=True)
 
-        # Read and save uploaded video
+        # Read and validate the video before writing it to disk.
         contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="The uploaded video is empty.")
+        if len(contents) > 100 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Video exceeds the 100 MB upload limit.")
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
             tmp_file.write(contents)
             tmp_path = tmp_file.name
 
         # Also persist a copy to results/videos
         try:
-            vname = f"{int(datetime.now().timestamp())}_{file.filename}"
+            extension = os.path.splitext(file.filename or "")[1].lower()
+            if extension not in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+                extension = ".mp4"
+            vname = f"{uuid.uuid4().hex}{extension}"
             save_vpath = os.path.join(os.getcwd(), "results", "videos", vname)
             with open(save_vpath, "wb") as vf:
                 vf.write(contents)
@@ -1218,6 +1231,8 @@ async def detect_video(
             "uploader_id": None,
             "uploader_name": "Anonymous",
             "verified": False,
+            "ai_review_required": any(d.get("confidence", 1) < 0.50 for d in unique_detections),
+            "severity_method": "bounding_box_pixel_area_heuristic_not_physical_measurement",
         }
 
         if len(unique_detections) == 0:
