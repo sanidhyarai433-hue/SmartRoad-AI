@@ -40,7 +40,7 @@ export default function ComplaintReportPage() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) throw new Error(result.detail || "Unable to load this complaint report.");
     setReport(result.data);
-    setDescription(result.data.description || "");
+    setDescription(result.data.description || result.data.ai_summary || "");
     setLocationText(result.data.road_name || result.data.location || "");
     setLatitude(result.data.lat === null || result.data.lat === undefined ? "" : String(result.data.lat));
     setLongitude(result.data.lng === null || result.data.lng === undefined ? "" : String(result.data.lng));
@@ -224,7 +224,7 @@ export default function ComplaintReportPage() {
 
         <section style={styles.panel}>
           {sectionTitle("04 · Complaint description")}
-          {editing ? <textarea style={{ ...styles.input, minHeight: 150, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} /> : <p style={{ ...styles.value, lineHeight: 1.75 }}>{textOr(report.description)}</p>}
+          {editing ? <textarea style={{ ...styles.input, minHeight: 150, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} /> : <p style={{ ...styles.value, lineHeight: 1.75 }}>{textOr(report.description || report.ai_summary)}</p>}
           <p style={{ ...styles.muted, marginTop: 12 }}>This description is citizen-editable. AI findings above remain the actual model output and are not changed by editing this text.</p>
         </section>
 
