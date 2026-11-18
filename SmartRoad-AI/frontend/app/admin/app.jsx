@@ -633,6 +633,12 @@ function ReportsPage({ reports }) {
                 ].map(([label,value]) => <div key={label}><div style={{ color: "#64748b", fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>{label}</div><div style={{ color: "#e2e8f0", overflowWrap: "anywhere" }}>{String(value)}</div></div>)}
               </div>
               {selectedReport.lat != null && selectedReport.lng != null && <a href={`https://www.google.com/maps?q=${selectedReport.lat},${selectedReport.lng}`} target="_blank" rel="noreferrer" style={{ color: "#67e8f9", fontSize: 12, display: "inline-block", marginTop: 12 }}>Open complaint coordinates in Google Maps ↗</a>}
+              {Array.isArray(selectedReport.attachments) && selectedReport.attachments.length > 0 && <div style={{ marginTop: 14 }}>
+                <div style={{ color: "#64748b", fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 8 }}>Additional evidence ({selectedReport.attachments.length})</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))", gap: 8 }}>
+                  {selectedReport.attachments.map((item,index) => <a key={index} href={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "")}${item.image_url}`} target="_blank" rel="noreferrer"><img src={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "")}${item.image_url}`} alt={item.file_name || "Additional evidence"} style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 7 }} /></a>)}
+                </div>
+              </div>}
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.07)" }}>
                 <div style={{ color: "#64748b", fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 6 }}>Citizen complaint description</div>
                 <div style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.6 }}>{selectedReport.description || selectedReport.ai_summary || "Not Provided"}</div>
