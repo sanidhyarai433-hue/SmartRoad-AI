@@ -1570,34 +1570,97 @@ def _report_severity(report):
 
 
 def _priority_score(reports):
-    """Explainable MVP score; inputs without measured data use neutral defaults."""
+    """Explainable 0-100 decision-support score; unverified inputs are explicitly marked."""
     severity_points = {"Minor": 25, "Moderate": 55, "Major": 85}
     severity = max((severity_points.get(_report_severity(r), 25) for r in reports), default=25)
-    # These values can be supplied by a future verified road/traffic data source.
-    safety = max([float(r.get("safety_risk", 50) or 50) for r in reports] or [50])
-    traffic = max([float(r.get("traffic_exposure", 50) or 50) for r in reports] or [50])
-    road_importance = max([float(r.get("road_importance", 50) or 50) for r in reports] or [50])
+
+    def factor(name):
+        values = []
+        for report in reports:
+            try:
+                value = float(report.get(name))
+                if 0 <= value <= 100:
+                    values.append(value)
+            except (TypeError, ValueError):
+                continue
+        return max(values) if values else 50.0, bool(values)
+
+    safety, safety_verified = factor("safety_risk")
+    traffic, traffic_verified = factor("traffic_exposure")
+    road_importance, road_verified = factor("road_importance")
     report_support = min(100, len(reports) * 25)
-    oldest = min((r.get("timestamp") or datetime.now().isoformat() for r in reports), default=datetime.now().isoformat())
+    timestamps = [r.get("timestamp") for r in reports if r.get("timestamp")]
+    oldest = min(timestamps) if timestamps else datetime.now().isoformat()
     try:
-        waiting_days = max(0, (datetime.now() - datetime.fromisoformat(oldest.replace("Z", "+00:00")).replace(tzinfo=None)).total_seconds() / 86400)
-    except Exception:
+        parsed = datetime.fromisoformat(str(oldest).replace("Z", "+00:00"))
+        if parsed.tzinfo:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        waiting_days = max(0, (datetime.now() - parsed).total_seconds() / 86400)
+    except (TypeError, ValueError, OverflowError):
         waiting_days = 0
     waiting = min(100, waiting_days / 30 * 100)
-    score = round(0.35 * severity + 0.25 * safety + 0.15 * report_support + 0.15 * road_importance + 0.10 * waiting)
+    components = {
+        "severity": round(severity * 0.30),
+        "safety": round(safety * 0.25),
+        "traffic": round(traffic * 0.15),
+        "road_importance": round(road_importance * 0.15),
+        "report_support": round(report_support * 0.10),
+        "waiting_time": round(waiting * 0.05),
+    }
+    score = max(0, min(100, round(sum(components.values()))))
     band = "Critical" if score >= 75 else "High" if score >= 50 else "Moderate" if score >= 25 else "Low"
     reasons = [
-        f"Highest detected damage severity: {_report_severity(max(reports, key=lambda r: severity_points.get(_report_severity(r), 25)))}",
-        f"{len(reports)} citizen report(s) support this incident",
-        f"Waiting time contributes {round(waiting)} points before weighting",
-        "Safety and road-importance inputs are neutral defaults until verified data is available",
+        f"Damage severity contributes {components['severity']}/30 points (highest detected: {_report_severity(max(reports, key=lambda r: severity_points.get(_report_severity(r), 25)))})",
+        f"Safety exposure contributes {components['safety']}/25 points ({'verified input' if safety_verified else 'neutral default: 50/100'})",
+        f"Traffic exposure contributes {components['traffic']}/15 points ({'verified input' if traffic_verified else 'neutral default: 50/100'})",
+        f"Road importance contributes {components['road_importance']}/15 points ({'verified input' if road_verified else 'neutral default: 50/100'})",
+        f"{len(reports)} supporting citizen report(s) contribute {components['report_support']}/10 points",
+        f"Waiting {round(waiting_days, 1)} day(s) contributes {components['waiting_time']}/5 points",
     ]
-    return score, band, reasons
+    quality = {
+        "safety_verified": safety_verified,
+        "traffic_verified": traffic_verified,
+        "road_importance_verified": road_verified,
+        "verified_factor_count": sum([safety_verified, traffic_verified, road_verified]),
+    }
+    return score, band, reasons, components, quality
+
+
+def _sla_deadline(priority_band, supplied_deadline=None):
+    """Return a validated explicit deadline or a priority-based default SLA deadline."""
+    if supplied_deadline:
+        try:
+            parsed = datetime.fromisoformat(str(supplied_deadline).replace("Z", "+00:00"))
+            if parsed.tzinfo:
+                parsed = parsed.astimezone().replace(tzinfo=None)
+            return parsed.isoformat(timespec="minutes"), "municipal_override"
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Deadline must be an ISO date or datetime.")
+    hours = {"Critical": 24, "High": 72, "Moderate": 168, "Low": 336}.get(priority_band, 168)
+    from datetime import timedelta
+    return (datetime.now() + timedelta(hours=hours)).isoformat(timespec="minutes"), "priority_default"
+
+
+def _sla_state(deadline):
+    if not deadline:
+        return {"sla_status": "Not set", "overdue_hours": 0, "escalation_level": 0}
+    try:
+        due = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+        if due.tzinfo:
+            due = due.astimezone().replace(tzinfo=None)
+        overdue_hours = max(0, (datetime.now() - due).total_seconds() / 3600)
+    except (TypeError, ValueError):
+        return {"sla_status": "Invalid deadline", "overdue_hours": 0, "escalation_level": 0}
+    if overdue_hours <= 0:
+        return {"sla_status": "On track", "overdue_hours": 0, "escalation_level": 0}
+    level = 1 if overdue_hours < 24 else 2 if overdue_hours < 72 else 3
+    return {"sla_status": "Overdue", "overdue_hours": round(overdue_hours, 1), "escalation_level": level}
 
 
 def _build_priority_incidents():
+    # Always build the municipal queue from persistent complaints, not a stale worker cache.
     reports = [
-        dict(r) for r in dashboard_data.get("reports", [])
+        dict(r) for r in load_persisted_reports()
         if str(r.get("status", "")).lower() not in {"completed", "closed", "false image/rejected", "rejected"}
         and int(r.get("detections", 0) or 0) > 0
     ]
@@ -1626,8 +1689,14 @@ def _build_priority_incidents():
         items = cluster["reports"]
         ids = sorted([str(r.get("id")) for r in items])
         incident_id = "INC-" + hashlib.sha1(",".join(ids).encode("utf-8")).hexdigest()[:10].upper()
-        score, band, reasons = _priority_score(items)
+        score, band, reasons, score_components, data_quality = _priority_score(items)
         first = items[0]
+        override_band = first.get("priority_override")
+        if override_band in {"Low", "Moderate", "High", "Critical"}:
+            band = override_band
+            reasons.append("Municipal priority override: " + str(first.get("priority_override_reason") or "No reason recorded"))
+        assignment = first.get("assignment") or {}
+        sla = _sla_state(assignment.get("deadline"))
         incidents.append({
             "incident_id": incident_id,
             "report_ids": [r.get("id") for r in items],
@@ -1640,9 +1709,16 @@ def _build_priority_incidents():
             "priority_score": score,
             "priority_band": band,
             "priority_reasons": reasons,
+            "priority_components": score_components,
+            "priority_data_quality": data_quality,
+            "department": first.get("department") or "Unassigned",
+            "authority": first.get("authority") or "Unassigned",
+            "priority_override": override_band,
+            "priority_override_reason": first.get("priority_override_reason"),
             "status": first.get("status") or "In Review",
             "contractor": first.get("contractor"),
-            "assignment": first.get("assignment"),
+            "assignment": assignment,
+            "sla": sla,
             "contractor_work": first.get("contractor_work") or {},
             "reports": items,
         })
@@ -1700,6 +1776,61 @@ def create_contractor(payload: dict = Body(...)):
     return {"success": True, "message": "Contractor registered", "data": {k: v for k, v in contractor.items() if k not in {"salt", "pwd_hash", "token"}}}
 
 
+
+@app.post("/admin/priority/incidents/{incident_id}/triage")
+def triage_priority_incident(incident_id: str, payload: dict = Body(...)):
+    """Assign a responsible municipal department and verified risk inputs to an incident."""
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found; refresh the priority queue")
+    department = str(payload.get("department") or "").strip()
+    authority = str(payload.get("authority") or "").strip()
+    if not department or not authority:
+        raise HTTPException(status_code=400, detail="Department and responsible authority are required.")
+
+    changes = {"department": department, "authority": authority}
+    for field in ("safety_risk", "traffic_exposure", "road_importance"):
+        if field in payload and payload[field] not in (None, ""):
+            try:
+                value = float(payload[field])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{field} must be a number from 0 to 100.")
+            if not 0 <= value <= 100:
+                raise HTTPException(status_code=400, detail=f"{field} must be between 0 and 100.")
+            changes[field] = value
+
+    override = str(payload.get("priority_override") or "").strip()
+    if override:
+        if override not in {"Low", "Moderate", "High", "Critical"}:
+            raise HTTPException(status_code=400, detail="Priority override must be Low, Moderate, High or Critical.")
+        reason = str(payload.get("priority_override_reason") or "").strip()
+        if len(reason) < 8:
+            raise HTTPException(status_code=400, detail="A clear reason of at least 8 characters is required for a priority override.")
+        changes["priority_override"] = override
+        changes["priority_override_reason"] = reason
+    elif payload.get("clear_priority_override"):
+        changes["priority_override"] = None
+        changes["priority_override_reason"] = None
+
+    timestamp = datetime.now().isoformat()
+    persisted = load_persisted_reports()
+    updated = 0
+    for report_id in incident["report_ids"]:
+        report = next((r for r in persisted if str(r.get("id")) == str(report_id)), None)
+        history = list((report or {}).get("authority_workflow") or [])
+        history.append({
+            "action": "municipal_triage_updated",
+            "actor": "Municipal authority",
+            "timestamp": timestamp,
+            "details": dict(changes),
+        })
+        if update_persisted_report(int(report_id), {**changes, "authority_workflow": history}):
+            updated += 1
+
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Municipal triage saved", "data": {"incident_id": incident_id, "updated_reports": updated, "department": department, "authority": authority}}
+
+
 @app.post("/admin/priority/incidents/{incident_id}/assign")
 def assign_incident_contractor(incident_id: str, payload: dict = Body(...)):
     contractor_id = str(payload.get("contractor_id") or "").strip()
@@ -1716,12 +1847,18 @@ def assign_incident_contractor(incident_id: str, payload: dict = Body(...)):
     incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found; refresh the priority queue")
+    deadline, sla_source = _sla_deadline(incident.get("priority_band"), payload.get("deadline"))
+    work_order = str(payload.get("work_order") or "").strip()
+    if not work_order:
+        work_order = "WO-" + datetime.now().strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6].upper()
     assignment = {
         "contractor_id": contractor_id,
         "contractor_name": contractor.get("name"),
         "assigned_at": datetime.now().isoformat(),
-        "deadline": payload.get("deadline"),
-        "work_order": str(payload.get("work_order") or "").strip(),
+        "deadline": deadline,
+        "sla_source": sla_source,
+        "sla_hours": {"Critical": 24, "High": 72, "Moderate": 168, "Low": 336}.get(incident.get("priority_band"), 168),
+        "work_order": work_order,
         "notes": str(payload.get("notes") or "").strip(),
         "status": "Assigned",
     }
@@ -1732,6 +1869,14 @@ def assign_incident_contractor(incident_id: str, payload: dict = Body(...)):
             "assignment": assignment,
             "status": "In Progress",
             "progress": 35,
+            "department": incident.get("department") or "Roads & Infrastructure",
+            "authority": incident.get("authority") or "Municipal Engineering",
+            "authority_workflow": (report.get("authority_workflow") or []) + [{
+                "action": "contractor_assigned",
+                "actor": "Municipal authority",
+                "timestamp": datetime.now().isoformat(),
+                "details": {"contractor_id": contractor_id, "work_order": work_order, "deadline": deadline},
+            }],
         })
         if report:
             updated.append(report)
