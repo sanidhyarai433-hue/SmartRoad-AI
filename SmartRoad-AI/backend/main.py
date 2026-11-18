@@ -1499,7 +1499,7 @@ def get_priority_incidents():
 def get_contractors():
     with db_engine.connect() as connection:
         rows = connection.execute(select(contractors_table.c.payload)).scalars().all()
-    return {"success": True, "data": [dict(row) for row in rows], "count": len(rows)}
+    return {"success": True, "data": [_safe_contractor(dict(row)) if "_safe_contractor" in globals() else {k: v for k, v in dict(row).items() if k not in {"salt", "pwd_hash", "token"}} for row in rows], "count": len(rows)}
 
 
 @app.post("/admin/contractors")
@@ -1530,7 +1530,7 @@ def create_contractor(payload: dict = Body(...)):
     }
     with db_engine.begin() as connection:
         connection.execute(contractors_table.insert().values(contractor_id=contractor_id, payload=contractor))
-    return {"success": True, "message": "Contractor registered", "data": contractor}
+    return {"success": True, "message": "Contractor registered", "data": {k: v for k, v in contractor.items() if k not in {"salt", "pwd_hash", "token"}}}
 
 
 @app.post("/admin/priority/incidents/{incident_id}/assign")
