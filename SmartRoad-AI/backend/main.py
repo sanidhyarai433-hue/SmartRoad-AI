@@ -90,6 +90,12 @@ complaints_table = Table(
     Column("created_at", String(40), index=True),
     Column("payload", JSON, nullable=False),
 )
+users_table = Table(
+    "smartroad_users",
+    db_metadata,
+    Column("user_id", String(128), primary_key=True),
+    Column("payload", JSON, nullable=False),
+)
 db_metadata.create_all(db_engine)
 
 
@@ -276,15 +282,34 @@ def parse_coords_from_string(s):
 USERS_FILE = os.path.join(os.getcwd(), "users.json")
 
 def load_users():
+    """Load users from the database, importing the legacy JSON file once."""
+    with db_engine.connect() as connection:
+        rows = connection.execute(select(users_table.c.payload)).scalars().all()
+    if rows:
+        return [dict(row) for row in rows]
+
+    # One-time migration for accounts created before database persistence.
+    legacy_users = []
     try:
-        with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return []
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            legacy_users = json.load(f) or []
+    except (OSError, ValueError, TypeError):
+        legacy_users = []
+
+    if legacy_users:
+        save_users(legacy_users)
+        return legacy_users
+    return []
 
 def save_users(users):
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, indent=2)
+    """Persist the user collection so account tokens survive service restarts."""
+    with db_engine.begin() as connection:
+        connection.execute(users_table.delete())
+        if users:
+            connection.execute(users_table.insert(), [
+                {"user_id": str(user.get("id") or uuid.uuid4().hex), "payload": user}
+                for user in users
+            ])
 
 
 def find_user_by_token(token: str):
