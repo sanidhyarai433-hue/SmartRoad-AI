@@ -142,7 +142,7 @@ export default function ContractorPortal() {
               </div>
               <div style={{ display: "flex", gap: 9, flexWrap: "wrap", marginTop: 16 }}>
                 {status === "Assigned" && <button disabled={busy} style={button} onClick={() => jobAction(job,"accept")}>Accept job</button>}
-                {["Assigned","Accepted"].includes(status) && <button disabled={busy} style={{ ...button, background: "#0f766e" }} onClick={() => jobAction(job,"start")}>Start repair</button>}
+                {["Assigned","Accepted","Rework Requested"].includes(status) && <button disabled={busy} style={{ ...button, background: "#0f766e" }} onClick={() => jobAction(job,"start")}>{status === "Rework Requested" ? "Resume rework" : "Start repair"}</button>}
                 {["Work Started","In Progress"].includes(status) && <button disabled={busy} style={{ ...button, background: "#7c3aed" }} onClick={() => jobAction(job,"submit_for_verification")}>Submit for verification</button>}
                 {status === "Submitted for Verification" && <span style={{ color: "#c4b5fd", alignSelf: "center", fontSize: 13 }}>Submitted — awaiting municipal review</span>}
                 {job.contractor_work?.verification_note && <span style={{ color: "#fbbf24", alignSelf: "center", fontSize: 13 }}>Municipal note: {job.contractor_work.verification_note}</span>}
