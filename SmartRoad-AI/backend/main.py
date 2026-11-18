@@ -21,12 +21,18 @@ import zipfile
 # Initialize the app
 app = FastAPI(title="SmartRoad API", version="1.0.0")
 
-# Serve saved results (images/videos) as static files so frontend can fetch them
+# Create static directories before mounting them. StaticFiles validates that the
+# directory exists during application startup; mounting before creating results
+# can prevent the entire FastAPI service from booting on a fresh deployment.
+RESULTS_DIR = os.path.join(os.getcwd(), "results")
+SOUNDS_DIR = os.path.join(os.getcwd(), "static", "sounds")
+os.makedirs(os.path.join(RESULTS_DIR, "images"), exist_ok=True)
+os.makedirs(os.path.join(RESULTS_DIR, "videos"), exist_ok=True)
+os.makedirs(SOUNDS_DIR, exist_ok=True)
+
 from fastapi.staticfiles import StaticFiles
-app.mount("/results", StaticFiles(directory=os.path.join(os.getcwd(), "results")), name="results")
-# Serve custom alert sounds placed in backend/static/sounds
-os.makedirs(os.path.join(os.getcwd(), "static", "sounds"), exist_ok=True)
-app.mount("/sounds", StaticFiles(directory=os.path.join(os.getcwd(), "static", "sounds")), name="sounds")
+app.mount("/results", StaticFiles(directory=RESULTS_DIR), name="results")
+app.mount("/sounds", StaticFiles(directory=SOUNDS_DIR), name="sounds")
 
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
@@ -255,7 +261,8 @@ def read_root():
             "demo": "/demo",
             "detect_image": "/detect/image",
             "detect_video": "/detect/video",
-            "health": "/health"
+            "health": "/health",
+            "my_complaints": "/user/complaints"
         }
     }
 
@@ -470,6 +477,8 @@ async def detect_image(
             "timestamp": datetime.now().isoformat()
         }
    
+    except HTTPException:
+        raise
     except Exception as e:
         # Avoid unbound errors if image wasn't created
         try:
