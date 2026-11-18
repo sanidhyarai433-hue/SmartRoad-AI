@@ -546,10 +546,16 @@ export default function SmartRoadReport() {
 
     const fd = new FormData();
     fd.append(isVideo ? "video" : "image", file);
-    fd.append("lat", location.lat); fd.append("lng", location.lng); fd.append("road", location.road);
-    if (description) fd.append("description", description);
-    if (critical)    fd.append("critical", "true");
-    if (severity)    fd.append("severity", severity);
+    // Match the FastAPI form fields so the backend saves the road location correctly.
+    fd.append("latitude", String(location.lat));
+    fd.append("longitude", String(location.lng));
+    fd.append("description", [location.road, description].filter(Boolean).join(" — "));
+    if (critical) fd.append("is_critical", "true");
+    if (severity) fd.append("severity", severity);
+
+    // Associate this report with the signed-in citizen for My Complaints tracking.
+    const authToken = typeof window !== "undefined" ? localStorage.getItem("sr_token") : null;
+    if (authToken) fd.append("token", authToken);
 
     let iv;
     if (isVideo) iv = setInterval(() => setProgress(p => Math.min(p + Math.random()*9, 90)), 380);
@@ -558,7 +564,11 @@ export default function SmartRoadReport() {
       // mark upload started
       setSteps(s => s.map(st => st.id === 'upload' ? { ...st, status: 'in-progress' } : st));
 
-      const res = await fetch(isVideo ? "/detect/video" : "/detect/image", { method:"POST", body:fd });
+      const res = await fetch(isVideo ? "/detect/video" : "/detect/image", {
+        method: "POST",
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+        body: fd
+      });
 
       // sent
       setSteps(s => s.map(st => st.id === 'upload' ? { ...st, status: 'done' } : st));
@@ -588,19 +598,10 @@ export default function SmartRoadReport() {
       setSteps(s => s.map(st => st.id === 'update' ? { ...st, status: 'done' } : st));
       setSteps(s => s.map(st => st.id === 'save' ? { ...st, status: 'done' } : st));
     } catch (err) {
-      /* Demo fallback — shows full result UI when backend is offline */
-      clearInterval(iv);
-      setProgress(100);
-      await new Promise(r => setTimeout(r, 350));
-      setResult({
-        severity: severity || "major",
-        total_detections: 4,
-        confidence: 0.89,
-        severity_breakdown: { minor:1, moderate:2, major:1 },
-        image_with_detections: null,
-      });
-      // mark steps as failed or completed in fallback
-      setSteps(s => s.map(st => ({ ...st, status: st.status === 'done' ? 'done' : 'done' })));
+      // Do not show a fake success result when the backend did not save the complaint.
+      setError(err.message || "The report could not be submitted. Please try again.");
+      setResult(null);
+      setSteps(s => s.map(st => st.id === 'save' ? { ...st, status: 'failed' } : st));
     } finally {
       clearInterval(iv);
       setSubmitting(false);
