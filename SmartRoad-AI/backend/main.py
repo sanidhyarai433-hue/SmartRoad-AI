@@ -1863,7 +1863,16 @@ def assign_incident_contractor(incident_id: str, payload: dict = Body(...)):
         "status": "Assigned",
     }
     updated = []
+    persisted_reports = load_persisted_reports()
     for report_id in incident["report_ids"]:
+        existing_report = next((r for r in persisted_reports if str(r.get("id")) == str(report_id)), {})
+        workflow = list(existing_report.get("authority_workflow") or [])
+        workflow.append({
+            "action": "contractor_assigned",
+            "actor": "Municipal authority",
+            "timestamp": datetime.now().isoformat(),
+            "details": {"contractor_id": contractor_id, "work_order": work_order, "deadline": deadline},
+        })
         report = update_persisted_report(int(report_id), {
             "contractor": {"contractor_id": contractor_id, "name": contractor.get("name")},
             "assignment": assignment,
@@ -1871,12 +1880,7 @@ def assign_incident_contractor(incident_id: str, payload: dict = Body(...)):
             "progress": 35,
             "department": incident.get("department") or "Roads & Infrastructure",
             "authority": incident.get("authority") or "Municipal Engineering",
-            "authority_workflow": (report.get("authority_workflow") or []) + [{
-                "action": "contractor_assigned",
-                "actor": "Municipal authority",
-                "timestamp": datetime.now().isoformat(),
-                "details": {"contractor_id": contractor_id, "work_order": work_order, "deadline": deadline},
-            }],
+            "authority_workflow": workflow,
         })
         if report:
             updated.append(report)
