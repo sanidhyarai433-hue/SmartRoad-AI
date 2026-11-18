@@ -536,7 +536,7 @@ async def detect_image(
         if len(contents) > 10 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="Image exceeds the 10 MB upload limit.")
         nparr = np.frombuffer(contents, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        image = await run_in_threadpool(cv2.imdecode, nparr, cv2.IMREAD_COLOR)
 
         # Free raw bytes early to save memory
         del nparr
@@ -568,7 +568,7 @@ async def detect_image(
         h, w = image.shape[:2]
         if max(h, w) > MAX_DIM:
             scale = MAX_DIM / max(h, w)
-            image = cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            image = await run_in_threadpool(cv2.resize, image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
         # Keep CPU-bound model inference and JPEG encoding off the async event loop.
         detections, image_base64 = await run_in_threadpool(_cached_image_inspection, image_hash, image)
