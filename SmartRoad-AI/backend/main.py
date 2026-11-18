@@ -1369,3 +1369,210 @@ def auth_me(request: Request):
     return {"success": True, "data": safe}
 
 
+
+
+# ============== ROADGUARD PRIORITY + CONTRACTOR WORKFLOW ==============
+# Incidents are grouped from nearby unresolved citizen reports. Original reports
+# remain intact; grouping creates one operational repair job for administrators.
+contractors_table = Table(
+    "smartroad_contractors",
+    db_metadata,
+    Column("contractor_id", String(64), primary_key=True),
+    Column("payload", JSON, nullable=False),
+)
+db_metadata.create_all(db_engine)
+
+
+def _distance_meters(lat1, lng1, lat2, lng2):
+    """Haversine distance between two GPS points."""
+    from math import radians, sin, cos, asin, sqrt
+    earth_radius = 6371000
+    dlat = radians(lat2 - lat1)
+    dlng = radians(lng2 - lng1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    return 2 * earth_radius * asin(sqrt(a))
+
+
+def _report_severity(report):
+    severity = report.get("severity") or {}
+    if isinstance(severity, str):
+        return severity.title()
+    if isinstance(severity, dict):
+        if int(severity.get("Major", 0) or 0) > 0:
+            return "Major"
+        if int(severity.get("Moderate", 0) or 0) > 0:
+            return "Moderate"
+    return "Minor"
+
+
+def _priority_score(reports):
+    """Explainable MVP score; inputs without measured data use neutral defaults."""
+    severity_points = {"Minor": 25, "Moderate": 55, "Major": 85}
+    severity = max((severity_points.get(_report_severity(r), 25) for r in reports), default=25)
+    # These values can be supplied by a future verified road/traffic data source.
+    safety = max([float(r.get("safety_risk", 50) or 50) for r in reports] or [50])
+    traffic = max([float(r.get("traffic_exposure", 50) or 50) for r in reports] or [50])
+    road_importance = max([float(r.get("road_importance", 50) or 50) for r in reports] or [50])
+    report_support = min(100, len(reports) * 25)
+    oldest = min((r.get("timestamp") or datetime.now().isoformat() for r in reports), default=datetime.now().isoformat())
+    try:
+        waiting_days = max(0, (datetime.now() - datetime.fromisoformat(oldest.replace("Z", "+00:00")).replace(tzinfo=None)).total_seconds() / 86400)
+    except Exception:
+        waiting_days = 0
+    waiting = min(100, waiting_days / 30 * 100)
+    score = round(0.35 * severity + 0.25 * safety + 0.15 * report_support + 0.15 * road_importance + 0.10 * waiting)
+    band = "Critical" if score >= 75 else "High" if score >= 50 else "Moderate" if score >= 25 else "Low"
+    reasons = [
+        f"Highest detected damage severity: {_report_severity(max(reports, key=lambda r: severity_points.get(_report_severity(r), 25)))}",
+        f"{len(reports)} citizen report(s) support this incident",
+        f"Waiting time contributes {round(waiting)} points before weighting",
+        "Safety and road-importance inputs are neutral defaults until verified data is available",
+    ]
+    return score, band, reasons
+
+
+def _build_priority_incidents():
+    reports = [
+        dict(r) for r in dashboard_data.get("reports", [])
+        if str(r.get("status", "")).lower() not in {"completed", "closed", "false image/rejected", "rejected"}
+        and int(r.get("detections", 0) or 0) > 0
+    ]
+    clusters = []
+    for report in sorted(reports, key=lambda r: r.get("timestamp") or ""):
+        try:
+            lat, lng = float(report.get("lat")), float(report.get("lng"))
+        except (TypeError, ValueError):
+            lat, lng = None, None
+        matched = None
+        if lat is not None and lng is not None:
+            for cluster in clusters:
+                if cluster["lat"] is not None and _distance_meters(lat, lng, cluster["lat"], cluster["lng"]) <= 35:
+                    matched = cluster
+                    break
+        if matched is None:
+            clusters.append({"lat": lat, "lng": lng, "reports": [report]})
+        else:
+            matched["reports"].append(report)
+            points = [(float(r["lat"]), float(r["lng"])) for r in matched["reports"] if r.get("lat") is not None and r.get("lng") is not None]
+            matched["lat"] = sum(p[0] for p in points) / len(points)
+            matched["lng"] = sum(p[1] for p in points) / len(points)
+
+    incidents = []
+    for cluster in clusters:
+        items = cluster["reports"]
+        ids = sorted([str(r.get("id")) for r in items])
+        incident_id = "INC-" + hashlib.sha1(",".join(ids).encode("utf-8")).hexdigest()[:10].upper()
+        score, band, reasons = _priority_score(items)
+        first = items[0]
+        incidents.append({
+            "incident_id": incident_id,
+            "report_ids": [r.get("id") for r in items],
+            "supporting_reports": len(items),
+            "location": first.get("location") or "Location not provided",
+            "description": first.get("description") or "",
+            "lat": cluster["lat"],
+            "lng": cluster["lng"],
+            "severity": max((_report_severity(r) for r in items), key=lambda s: {"Minor": 1, "Moderate": 2, "Major": 3}.get(s, 0)),
+            "priority_score": score,
+            "priority_band": band,
+            "priority_reasons": reasons,
+            "status": first.get("status") or "In Review",
+            "contractor": first.get("contractor"),
+            "assignment": first.get("assignment"),
+            "reports": items,
+        })
+    incidents.sort(key=lambda item: item["priority_score"], reverse=True)
+    for index, incident in enumerate(incidents, start=1):
+        incident["rank"] = index
+    return incidents
+
+
+@app.get("/admin/priority/incidents")
+def get_priority_incidents():
+    """Return grouped active road incidents ranked by explainable priority score."""
+    incidents = _build_priority_incidents()
+    return {"success": True, "count": len(incidents), "data": incidents}
+
+
+@app.get("/admin/contractors")
+def get_contractors():
+    with db_engine.connect() as connection:
+        rows = connection.execute(select(contractors_table.c.payload)).scalars().all()
+    return {"success": True, "data": [dict(row) for row in rows], "count": len(rows)}
+
+
+@app.post("/admin/contractors")
+def create_contractor(payload: dict = Body(...)):
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Contractor name is required")
+    contractor_id = "CTR-" + uuid.uuid4().hex[:8].upper()
+    contractor = {
+        "contractor_id": contractor_id,
+        "name": name,
+        "company": str(payload.get("company") or "").strip(),
+        "phone": str(payload.get("phone") or "").strip(),
+        "email": str(payload.get("email") or "").strip(),
+        "service_area": str(payload.get("service_area") or "").strip(),
+        "specialization": str(payload.get("specialization") or "Road repair").strip(),
+        "status": "Active",
+        "created_at": datetime.now().isoformat(),
+    }
+    with db_engine.begin() as connection:
+        connection.execute(contractors_table.insert().values(contractor_id=contractor_id, payload=contractor))
+    return {"success": True, "message": "Contractor registered", "data": contractor}
+
+
+@app.post("/admin/priority/incidents/{incident_id}/assign")
+def assign_incident_contractor(incident_id: str, payload: dict = Body(...)):
+    contractor_id = str(payload.get("contractor_id") or "").strip()
+    with db_engine.connect() as connection:
+        contractor_row = connection.execute(
+            select(contractors_table.c.payload).where(contractors_table.c.contractor_id == contractor_id)
+        ).first()
+    if not contractor_row:
+        raise HTTPException(status_code=404, detail="Active contractor not found")
+    contractor = dict(contractor_row[0])
+    if contractor.get("status") != "Active":
+        raise HTTPException(status_code=400, detail="This contractor is not active")
+
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found; refresh the priority queue")
+    assignment = {
+        "contractor_id": contractor_id,
+        "contractor_name": contractor.get("name"),
+        "assigned_at": datetime.now().isoformat(),
+        "deadline": payload.get("deadline"),
+        "work_order": str(payload.get("work_order") or "").strip(),
+        "notes": str(payload.get("notes") or "").strip(),
+        "status": "Assigned",
+    }
+    updated = []
+    for report_id in incident["report_ids"]:
+        report = update_persisted_report(int(report_id), {
+            "contractor": {"contractor_id": contractor_id, "name": contractor.get("name")},
+            "assignment": assignment,
+            "status": "In Progress",
+            "progress": 35,
+        })
+        if report:
+            updated.append(report)
+    # Refresh in-memory dashboard after persistence updates.
+    dashboard_data["reports"] = load_persisted_reports()
+    return {
+        "success": True,
+        "message": f"Repair job assigned to {contractor.get('name')}",
+        "data": {"incident_id": incident_id, "assignment": assignment, "updated_reports": len(updated)},
+    }
+
+
+@app.post("/admin/priority/incidents/{incident_id}/unassign")
+def unassign_incident_contractor(incident_id: str):
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    for report_id in incident["report_ids"]:
+        update_persisted_report(int(report_id), {"contractor": None, "assignment": None, "status": "In Review", "progress": 25})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Contractor assignment removed"}
