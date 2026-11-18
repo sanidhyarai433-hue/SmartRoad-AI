@@ -44,7 +44,7 @@ export default function ComplaintReportPage() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) throw new Error(result.detail || "Unable to load this complaint report.");
     setReport(result.data);
-    setDescription([result.data.ai_summary, result.data.description ? `Citizen's additional description: ${result.data.description}` : ""].filter(Boolean).join("\n\n"));
+    setDescription(result.data.description || "");
     setLocationText(result.data.road_name || result.data.location || "");
     setLatitude(result.data.lat === null || result.data.lat === undefined ? "" : String(result.data.lat));
     setLongitude(result.data.lng === null || result.data.lng === undefined ? "" : String(result.data.lng));
