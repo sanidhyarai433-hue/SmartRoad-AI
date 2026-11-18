@@ -26,6 +26,7 @@ export default function ComplaintReportPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [geoAddress, setGeoAddress] = useState({});
 
   const load = useCallback(async () => {
     const token = localStorage.getItem("sr_token");
@@ -51,6 +52,29 @@ export default function ComplaintReportPage() {
     load().catch(err => { if (active) setError(err.message); });
     return () => { active = false; };
   }, [load]);
+
+  // Reverse-geocode only the coordinates saved on this complaint. Never use
+  // the viewer's current device location when opening an older report.
+  useEffect(() => {
+    if (report?.lat == null || report?.lng == null) return;
+    let active = true;
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${report.lat}&lon=${report.lng}`, { headers: { "Accept-Language": "en" } })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (!active || !data?.address) return;
+        const a = data.address;
+        setGeoAddress({
+          road: a.road || a.pedestrian || a.highway,
+          locality: a.suburb || a.neighbourhood || a.quarter || a.residential,
+          city: a.city || a.town || a.village || a.municipality,
+          district: a.county || a.state_district,
+          state: a.state,
+          pin: a.postcode,
+        });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [report?.lat, report?.lng]);
 
   const detections = Array.isArray(report?.detection_details) ? report.detection_details : [];
   const breakdown = report?.severity || {};
@@ -206,14 +230,14 @@ export default function ComplaintReportPage() {
               <label style={styles.label}>Longitude<input style={styles.input} value={longitude} onChange={e => setLongitude(e.target.value)} placeholder="Longitude" /></label>
             </div>
           </div> : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 16 }}>
-            {field("Road name / captured address", report.road_name || report.location)}
+            {field("Road name / captured address", report.road_name || geoAddress.road || report.location)}
             {field("Latitude", report.lat)}
             {field("Longitude", report.lng)}
-            {field("Area / locality", report.locality)}
-            {field("City", report.city)}
-            {field("District", report.district)}
-            {field("State", report.state)}
-            {field("PIN code", report.pin_code)}
+            {field("Area / locality", report.locality || geoAddress.locality)}
+            {field("City", report.city || geoAddress.city)}
+            {field("District", report.district || geoAddress.district)}
+            {field("State", report.state || geoAddress.state)}
+            {field("PIN code", report.pin_code || geoAddress.pin)}
             {field("Location capture", report.location_resolution)}
           </div>}
           {map ? <div style={{ marginTop: 16 }}>
@@ -253,7 +277,7 @@ export default function ComplaintReportPage() {
           <button style={{ ...styles.button, background: "#087eae", borderColor: "#38bdf8" }} disabled={saving} onClick={submitOfficial}>{saving ? "Submitting…" : "Submit Official Complaint"}</button>
         </>}
         <button style={styles.button} onClick={downloadPDF}>Download PDF Report</button>
-        <button style={styles.button} onClick={() => router.push("/user-upload")}>Cancel</button>
+        <button style={styles.button} onClick={() => router.back()}>Cancel</button>
       </footer>
       <p className="no-print" style={{ ...styles.muted, textAlign: "center", marginTop: 12 }}>PDF export opens the browser print dialog. Select “Save as PDF” to save a copy of this official report.</p>
     </div>
