@@ -77,7 +77,14 @@ def _cached_image_inspection(image_hash, image_array):
         if cached is not None:
             _IMAGE_DETECTION_CACHE.move_to_end(image_hash)
             return cached
+    # Recheck after acquiring the model lock so concurrent identical requests
+    # share the first completed inference instead of queueing duplicate work.
     with _IMAGE_MODEL_LOCK:
+        with _IMAGE_DETECTION_CACHE_LOCK:
+            cached = _IMAGE_DETECTION_CACHE.get(image_hash)
+            if cached is not None:
+                _IMAGE_DETECTION_CACHE.move_to_end(image_hash)
+                return cached
         detections = detect_potholes(image_array)
         annotated = draw_detections(image_array.copy(), detections)
         encoded = image_to_base64(annotated)
