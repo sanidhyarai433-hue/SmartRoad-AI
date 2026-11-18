@@ -1219,9 +1219,14 @@ async def detect_video(
             "source": "user",
             "location": location_str,
             "description": description,
-            "status": "In Review",
-            "progress": 25,
+            "ai_summary": (f"Video analysis identified {len(unique_detections)} unique pothole instance(s): {severity_count['Major']} major, {severity_count['Moderate']} moderate and {severity_count['Minor']} minor."),
+            "status": "Pending Submission",
+            "submission_status": "draft",
+            "progress": 0,
             "detections": len(unique_detections),
+            "detection_details": unique_detections,
+            "damage_type": "Pothole" if unique_detections else "No damage detected",
+            "priority": "Major" if severity_count["Major"] else "Moderate" if severity_count["Moderate"] else "Minor" if severity_count["Minor"] else "No detected damage",
             "severity": severity_count,
             "timestamp": datetime.now().isoformat(),
             "lat": lat,
@@ -1267,14 +1272,13 @@ async def detect_video(
             if uploader:
                 report['uploader_id'] = uploader.get('id')
                 report['uploader_name'] = uploader.get('name')
+                report['uploader_email'] = uploader.get('email')
+                report['uploader_phone'] = uploader.get('phone')
                 report['verified'] = True
 
             report = persist_report(report)
             dashboard_data["reports"].append(report)
 
-            if auth_token and not no_potholes_video:
-                # award 20 coins for video reports that contain detections
-                credit_user_by_token(auth_token, 20, { 'report_id': report.get('id'), 'type': 'video', 'detections': len(unique_detections) })
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Could not save the video complaint: {str(e)}")
         return {
@@ -1638,7 +1642,8 @@ def submit_user_complaint(report_id: int, request: Request):
         "uploader_phone": user.get("phone") or None,
     })
     if updated and int(updated.get("detections", 0) or 0) > 0:
-        credit_user_by_token(token, 10, {"report_id": report_id, "type": "image", "detections": updated.get("detections", 0)})
+        reward = 20 if updated.get("type") == "video" else 10
+        credit_user_by_token(token, reward, {"report_id": report_id, "type": updated.get("type", "image"), "detections": updated.get("detections", 0)})
     dashboard_data["reports"] = load_persisted_reports()
     return {"success": True, "message": "Official complaint submitted successfully.", "data": updated}
 
