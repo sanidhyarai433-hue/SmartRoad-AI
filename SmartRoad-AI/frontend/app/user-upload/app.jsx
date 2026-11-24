@@ -624,7 +624,7 @@ export default function SmartRoadReport() {
     setOfficialSubmitting(true);
     setError("");
     try {
-      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "");
+      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
       const response = await fetch(`${backendBase}/user/complaints/${reportId}/submit`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
