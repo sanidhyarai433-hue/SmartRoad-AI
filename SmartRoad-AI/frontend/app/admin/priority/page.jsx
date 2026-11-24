@@ -2,60 +2,61 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "").replace(/\/+$/, "");
-const styles = {
-  page: { minHeight: "100vh", background: "#070d1b", color: "#e5edf8", padding: "28px clamp(16px, 4vw, 48px)", fontFamily: "Arial, sans-serif" },
-  shell: { maxWidth: 1440, margin: "0 auto" },
+const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+const DEPARTMENTS = [
+  "Public Works Department (PWD)",
+  "National Highways Authority of India (NHAI)",
+  "State Highways Division",
+  "Municipal Engineering Department",
+  "Gram Panchayat / Local Authority",
+  "Traffic & Transport Department",
+];
+
+const ui = {
+  page: { minHeight: "100%", background: "#070d1b", color: "#e5edf8", padding: "28px clamp(14px, 3vw, 34px)", fontFamily: "Arial, sans-serif" },
+  card: { background: "linear-gradient(145deg,#101b30,#0b1425)", border: "1px solid #24334c", borderRadius: 16, padding: 18 },
   muted: { color: "#8da0ba" },
-  card: { background: "linear-gradient(145deg, #101b30, #0b1425)", border: "1px solid #24334c", borderRadius: 16, padding: 20 },
-  button: { border: 0, borderRadius: 9, padding: "10px 15px", background: "#2563eb", color: "white", fontWeight: 700, cursor: "pointer" },
-  input: { width: "100%", boxSizing: "border-box", background: "#091326", color: "#e5edf8", border: "1px solid #30425f", borderRadius: 8, padding: "11px 12px", outline: "none" },
+  input: { width: "100%", boxSizing: "border-box", background: "#091326", color: "#e5edf8", border: "1px solid #30425f", borderRadius: 8, padding: "10px 11px", outline: "none" },
   label: { display: "block", color: "#a9bad1", fontSize: 12, marginBottom: 6 },
+  button: { border: 0, borderRadius: 8, padding: "10px 14px", background: "#2563eb", color: "white", fontWeight: 700, cursor: "pointer" },
 };
 
 async function request(path, options = {}) {
-  if (!API) throw new Error("NEXT_PUBLIC_BACKEND_URL is not configured.");
-  const response = await fetch(API + path, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    cache: "no-store",
-  });
+  const response = await fetch(API + path, { ...options, headers: { ...(options.headers || {}) }, cache: "no-store" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.success === false) throw new Error(data.detail || data.message || "Request failed");
   return data;
 }
 
-function priorityColor(band) {
+function bandColor(band) {
   return band === "Critical" ? "#fb7185" : band === "High" ? "#fb923c" : band === "Moderate" ? "#facc15" : "#4ade80";
+}
+
+function Panel({ title, children, hint }) {
+  return <section style={{ ...ui.card, marginBottom: 16 }}>
+    <h3 style={{ margin: "0 0 5px", fontSize: 17 }}>{title}</h3>
+    {hint && <p style={{ ...ui.muted, margin: "0 0 14px", fontSize: 12 }}>{hint}</p>}
+    {children}
+  </section>;
 }
 
 export default function RoadPriorityPage() {
   const [incidents, setIncidents] = useState([]);
-  const [contractors, setContractors] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", company: "", phone: "", email: "", password: "", service_area: "", specialization: "Road repair" });
-  const [credentialPasswords, setCredentialPasswords] = useState({});
-  const [assignments, setAssignments] = useState({});
-  const [triageForms, setTriageForms] = useState({});
+  const [forms, setForms] = useState({});
+  const [expanded, setExpanded] = useState("");
+  const [tab, setTab] = useState("queue");
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
-      const [incidentData, contractorData] = await Promise.all([
-        request("/admin/priority/incidents"),
-        request("/admin/contractors"),
-      ]);
-      setIncidents(incidentData.data || []);
-      setContractors(contractorData.data || []);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+      const result = await request("/admin/priority/incidents");
+      setIncidents(result.data || []);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -63,242 +64,153 @@ export default function RoadPriorityPage() {
   const stats = useMemo(() => ({
     total: incidents.length,
     critical: incidents.filter(x => x.priority_band === "Critical").length,
-    unassigned: incidents.filter(x => !x.assignment).length,
-    reports: incidents.reduce((sum, x) => sum + (x.supporting_reports || 0), 0),
+    referrals: incidents.filter(x => (x.referred_to || x.department_referral)).length,
+    inspections: incidents.filter(x => x.inspection?.status === "Requested" || x.status === "Inspection Requested").length,
+    pending: incidents.filter(x => !["Completed", "Closed", "False Image/Rejected"].includes(x.status)).length,
   }), [incidents]);
 
-  function updateForm(key, value) { setForm(current => ({ ...current, [key]: value })); }
+  const value = (id, key, fallback = "") => forms[id]?.[key] ?? fallback;
+  const setValue = (id, key, val) => setForms(old => ({ ...old, [id]: { ...old[id], [key]: val } }));
 
-  async function addContractor(event) {
-    event.preventDefault();
-    setSaving(true); setError(""); setNotice("");
+  async function perform(id, action, payload, successMessage) {
+    setSaving(id); setError(""); setNotice("");
     try {
-      await request("/admin/contractors", { method: "POST", body: JSON.stringify(form) });
-      setForm({ name: "", company: "", phone: "", email: "", password: "", service_area: "", specialization: "Road repair" });
-      setNotice("Contractor registered successfully.");
+      await request(`/admin/priority/incidents/${id}/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      setNotice(successMessage);
       await load();
     } catch (e) { setError(e.message); }
-    finally { setSaving(false); }
+    finally { setSaving(""); }
   }
 
-  function updateTriage(incidentId, key, value) {
-    setTriageForms(current => ({ ...current, [incidentId]: { ...current[incidentId], [key]: value } }));
-  }
-
-  async function saveTriage(incident) {
-    const form = triageForms[incident.incident_id] || {};
-    if (!form.department?.trim() || !form.authority?.trim()) {
-      setError("Enter the responsible department and authority before saving triage.");
-      return;
-    }
-    if (form.priority_override && (form.priority_override_reason || "").trim().length < 8) {
-      setError("A priority override needs a reason of at least 8 characters.");
-      return;
-    }
-    const numeric = ["safety_risk", "traffic_exposure", "road_importance"];
-    for (const key of numeric) {
-      if (form[key] !== undefined && form[key] !== "" && (!Number.isFinite(Number(form[key])) || Number(form[key]) < 0 || Number(form[key]) > 100)) {
-        setError("Risk inputs must be numbers between 0 and 100.");
-        return;
-      }
-    }
-    setSaving(true); setError(""); setNotice("");
+  async function uploadRepairEvidence(incident, file) {
+    if (!file) return;
+    const body = new FormData(); body.append("file", file);
+    setSaving(incident.incident_id); setError(""); setNotice("");
     try {
-      await request(`/admin/priority/incidents/${incident.incident_id}/triage`, {
-        method: "POST",
-        body: JSON.stringify({
-          department: form.department,
-          authority: form.authority,
-          safety_risk: form.safety_risk === "" ? undefined : form.safety_risk,
-          traffic_exposure: form.traffic_exposure === "" ? undefined : form.traffic_exposure,
-          road_importance: form.road_importance === "" ? undefined : form.road_importance,
-          priority_override: form.priority_override || undefined,
-          priority_override_reason: form.priority_override_reason || undefined,
-          clear_priority_override: !form.priority_override && Boolean(incident.priority_override),
-        }),
-      });
-      setNotice(`Municipal triage saved for ${incident.incident_id}.`);
+      await request(`/admin/priority/incidents/${incident.incident_id}/repair-evidence`, { method: "POST", body });
+      setNotice("Repair evidence uploaded. Review it before closing the complaint.");
       await load();
     } catch (e) { setError(e.message); }
-    finally { setSaving(false); }
+    finally { setSaving(""); }
   }
 
-  async function assign(incident) {
-    const selection = assignments[incident.incident_id] || {};
-    if (!selection.contractor_id) { setError("Choose a contractor before assigning this repair job."); return; }
-    setSaving(true); setError(""); setNotice("");
-    try {
-      await request(`/admin/priority/incidents/${incident.incident_id}/assign`, {
-        method: "POST",
-        body: JSON.stringify({ contractor_id: selection.contractor_id, deadline: selection.deadline || null, work_order: selection.work_order || "", notes: selection.notes || "" }),
-      });
-      setNotice(`Repair job ${incident.incident_id} assigned.`);
-      await load();
-    } catch (e) { setError(e.message); }
-    finally { setSaving(false); }
-  }
+  const exportReport = () => {
+    const rows = [
+      ["Incident ID","Location","Priority","Score","Severity","Reports","Department","Status","Referral reference","Inspection status"],
+      ...incidents.map(x => [x.incident_id, x.location, x.priority_band, x.priority_score, x.severity, x.supporting_reports, x.department || "", x.status || "", x.referral?.reference_number || "", x.inspection?.status || ""])
+    ];
+    const csv = rows.map(row => row.map(v => '"' + String(v ?? "").replaceAll('"','""') + '"').join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = "smartroad-maintenance-intelligence.csv"; a.click(); URL.revokeObjectURL(url);
+  };
 
-  async function saveContractorPassword(contractor) {
-    const password = credentialPasswords[contractor.contractor_id] || "";
-    if (password.length < 8) { setError("Portal password must contain at least 8 characters."); return; }
-    setSaving(true); setError(""); setNotice("");
-    try {
-      await request(`/admin/contractors/${contractor.contractor_id}/credentials`, { method: "POST", body: JSON.stringify({ password }) });
-      setCredentialPasswords(v => ({ ...v, [contractor.contractor_id]: "" }));
-      setNotice(`Portal access configured for ${contractor.name}.`);
-    } catch (e) { setError(e.message); }
-    finally { setSaving(false); }
-  }
+  return <main style={ui.page}>
+    <div style={{ maxWidth: 1440, margin: "0 auto" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 22 }}>
+        <div>
+          <div style={{ color: "#60a5fa", fontSize: 11, fontWeight: 800, letterSpacing: 2 }}>SMARTROAD AI · GOVERNMENT ACTION DESK</div>
+          <h1 style={{ fontSize: "clamp(25px,4vw,36px)", margin: "7px 0" }}>Road Action & Inspection Centre</h1>
+          <p style={{ ...ui.muted, margin: 0, fontSize: 13 }}>Verify priority incidents, refer them to the responsible authority, and track field action.</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a href="/admin" style={{ color: "#b8c8df", textDecoration: "none", border: "1px solid #30425f", borderRadius: 8, padding: "10px 13px" }}>← Dashboard</a>
+          <button style={ui.button} onClick={load}>↻ Refresh</button>
+        </div>
+      </header>
 
-  async function verifyRepair(incident, approved) {
-    const note = window.prompt(approved ? "Verification note (optional):" : "Explain what needs to be corrected:");
-    if (note === null) return;
-    if (!approved && !note.trim()) { setError("A rework instruction is required."); return; }
-    setSaving(true); setError(""); setNotice("");
-    try {
-      await request(`/admin/priority/incidents/${incident.incident_id}/verify`, { method: "POST", body: JSON.stringify({ approved, note }) });
-      setNotice(approved ? "Repair verified and marked completed." : "Rework requested from contractor.");
-      await load();
-    } catch (e) { setError(e.message); }
-    finally { setSaving(false); }
-  }
+      {error && <div role="alert" style={{ background: "#421b2a", border: "1px solid #9f3653", color: "#fecdd3", borderRadius: 9, padding: 12, marginBottom: 12 }}>{error}</div>}
+      {notice && <div role="status" style={{ background: "#123528", border: "1px solid #24734d", color: "#bbf7d0", borderRadius: 9, padding: 12, marginBottom: 12 }}>{notice}</div>}
 
-  async function unassign(incident) {
-    if (!window.confirm("Remove this contractor assignment?")) return;
-    setSaving(true); setError(""); setNotice("");
-    try {
-      await request(`/admin/priority/incidents/${incident.incident_id}/unassign`, { method: "POST" });
-      setNotice("Contractor assignment removed.");
-      await load();
-    } catch (e) { setError(e.message); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <main style={styles.page}>
-      <div style={styles.shell}>
-        <header style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 26 }}>
-          <div>
-            <div style={{ color: "#60a5fa", fontSize: 11, fontWeight: 800, letterSpacing: 2 }}>ROADGUARD AI · OPERATIONS</div>
-            <h1 style={{ fontSize: "clamp(25px, 4vw, 38px)", margin: "8px 0" }}>Road Priority & Contractor Desk</h1>
-            <p style={{ ...styles.muted, margin: 0 }}>Group nearby reports, rank repair urgency, and assign one contractor to each master incident.</p>
-          </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/admin" style={{ color: "#b8c8df", textDecoration: "none", border: "1px solid #30425f", borderRadius: 9, padding: "10px 14px" }}>← Admin dashboard</a>
-            <button style={styles.button} onClick={load}>↻ Refresh queue</button>
-          </div>
-        </header>
-
-        {error && <div role="alert" style={{ background: "#421b2a", border: "1px solid #9f3653", color: "#fecdd3", borderRadius: 10, padding: 12, marginBottom: 14 }}>{error}</div>}
-        {notice && <div role="status" style={{ background: "#123528", border: "1px solid #24734d", color: "#bbf7d0", borderRadius: 10, padding: 12, marginBottom: 14 }}>{notice}</div>}
-
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 22 }}>
-          {[
-            ["Active master incidents", stats.total],
-            ["Critical priority", stats.critical],
-            ["Awaiting contractor", stats.unassigned],
-            ["Citizen reports grouped", stats.reports],
-          ].map(([label, value]) => <div key={label} style={styles.card}><div style={{ ...styles.muted, fontSize: 12 }}>{label}</div><div style={{ fontSize: 30, fontWeight: 800, marginTop: 8 }}>{value}</div></div>)}
-        </section>
-
-        <section style={{ ...styles.card, marginBottom: 22 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
-            <div><h2 style={{ margin: "0 0 5px", fontSize: 20 }}>Ranked repair queue</h2><p style={{ ...styles.muted, margin: 0, fontSize: 13 }}>Nearby reports within 35 metres are grouped as one incident. Citizen submissions remain individually traceable.</p></div>
-            <span style={{ color: "#93c5fd", fontSize: 12 }}>Highest score = repair first</span>
-          </div>
-          {loading ? <p style={styles.muted}>Loading priority queue…</p> : incidents.length === 0 ? <p style={styles.muted}>No active detected road issues with reports available yet. Upload a report with GPS coordinates and detections to populate this queue.</p> : (
-            <div style={{ display: "grid", gap: 13 }}>
-              {incidents.map(incident => (
-                <article key={incident.incident_id} style={{ background: "#091426", border: "1px solid #263852", borderRadius: 13, padding: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                    <div>
-                      <div style={{ color: "#8da0ba", fontSize: 11, letterSpacing: 1 }}>RANK #{incident.rank} · {incident.incident_id}</div>
-                      <h3 style={{ margin: "6px 0", fontSize: 18 }}>{incident.location}</h3>
-                      <div style={styles.muted}>{incident.description || "No additional description"} · {incident.supporting_reports} supporting report(s) · {incident.severity} damage</div>
-                      <div style={{ ...styles.muted, fontSize: 11, marginTop: 5 }}>Department: {incident.department || "Unassigned"} · Authority: {incident.authority || "Unassigned"}</div>
-                    </div>
-                    <div style={{ textAlign: "right", minWidth: 100 }}>
-                      <div style={{ color: priorityColor(incident.priority_band), fontWeight: 800, fontSize: 13 }}>{incident.priority_band}</div>
-                      <div style={{ fontSize: 28, fontWeight: 800 }}>{incident.priority_score}<span style={{ fontSize: 12, color: "#8da0ba" }}>/100</span></div>
-                      <div style={{ fontSize: 10, color: incident.sla?.sla_status === "Overdue" ? "#fb7185" : "#86efac", marginTop: 4 }}>{incident.sla?.sla_status || "SLA not set"}{incident.sla?.escalation_level ? ` · Escalation L${incident.sla.escalation_level}` : ""}</div>
-                    </div>
-                  </div>
-                  <div style={{ height: 6, background: "#1e293b", borderRadius: 99, overflow: "hidden", margin: "14px 0" }}><div style={{ width: `${incident.priority_score}%`, height: "100%", background: priorityColor(incident.priority_band) }} /></div>
-                  <details style={{ color: "#a9bad1", fontSize: 12, marginBottom: 13 }}>
-                    <summary style={{ cursor: "pointer" }}>Why is this ranked #{incident.rank}?</summary>
-                    <ul>{(incident.priority_reasons || []).map((reason, i) => <li key={i} style={{ marginTop: 5 }}>{reason}</li>)}</ul>
-                    <p>Weighted components: {Object.entries(incident.priority_components || {}).map(([key, value]) => `${key.replaceAll("_", " ")} ${value}`).join(" · ") || "Not available"}</p>
-                    <p>Verified external risk factors: {incident.priority_data_quality?.verified_factor_count ?? 0}/3. Unverified factors use neutral defaults.</p>
-                    {incident.priority_override_reason && <p>Municipal override: {incident.priority_override} — {incident.priority_override_reason}</p>}
-                    <p>Linked report IDs: {(incident.report_ids || []).join(", ")}</p>
-                  </details>
-                  <details style={{ margin: "0 0 13px", border: "1px solid #30425f", borderRadius: 10, padding: 12, color: "#cbd5e1" }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 700 }}>Municipal triage · department, risk inputs & priority override</summary>
-                    {(() => {
-                      const form = triageForms[incident.incident_id] || {};
-                      const field = (key, fallback) => form[key] !== undefined ? form[key] : fallback;
-                      return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, marginTop: 12 }}>
-                        <div><label style={styles.label}>Responsible department</label><select style={styles.input} value={field("department", incident.department === "Unassigned" ? "Roads & Infrastructure" : incident.department)} onChange={e => updateTriage(incident.incident_id, "department", e.target.value)}>{["Roads & Infrastructure","Public Works Department","Municipal Engineering","Traffic & Transport","Drainage & Stormwater","Emergency Response"].map(x => <option key={x}>{x}</option>)}</select></div>
-                        <div><label style={styles.label}>Responsible authority / office</label><input style={styles.input} value={field("authority", incident.authority === "Unassigned" ? "Municipal Engineering" : incident.authority)} onChange={e => updateTriage(incident.incident_id, "authority", e.target.value)} placeholder="Municipal / PWD office" /></div>
-                        {[[ "safety_risk","Safety risk (0–100)" ],[ "traffic_exposure","Traffic exposure (0–100)" ],[ "road_importance","Road importance (0–100)" ]].map(([key,label]) => <div key={key}><label style={styles.label}>{label}</label><input type="number" min="0" max="100" style={styles.input} placeholder="Leave blank = neutral default" value={field(key, "")} onChange={e => updateTriage(incident.incident_id,key,e.target.value)} /></div>)}
-                        <div><label style={styles.label}>Override priority (optional)</label><select style={styles.input} value={field("priority_override", incident.priority_override || "")} onChange={e => updateTriage(incident.incident_id,"priority_override",e.target.value)}><option value="">Use calculated priority</option>{["Low","Moderate","High","Critical"].map(x => <option key={x}>{x}</option>)}</select></div>
-                        <div><label style={styles.label}>Override justification (required for override)</label><input style={styles.input} value={field("priority_override_reason", incident.priority_override_reason || "")} onChange={e => updateTriage(incident.incident_id,"priority_override_reason",e.target.value)} placeholder="Explain the municipal decision" /></div>
-                        <div style={{ display: "flex", alignItems: "end" }}><button disabled={saving} onClick={() => saveTriage(incident)} style={{ ...styles.button, width: "100%" }}>Save municipal triage</button></div>
-                      </div>;
-                    })()}
-                  </details>
-                  {incident.status === "Site Verification" && (
-                    <div style={{ background: "#211b3a", border: "1px solid #5b4a91", borderRadius: 10, padding: 13, marginBottom: 12 }}>
-                      <strong style={{ color: "#c4b5fd" }}>Repair submitted — municipal verification required</strong>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                        {(incident.contractor_work?.evidence || []).map((item, index) => <a key={index} href={API + item.url} target="_blank" rel="noreferrer"><img src={API + item.url} alt={item.type + " repair evidence"} style={{ width: 100, height: 76, objectFit: "cover", borderRadius: 7 }} /><div style={{ color: "#c4b5fd", fontSize: 11, textAlign: "center" }}>{item.type} photo</div></a>)}
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                        <button disabled={saving} onClick={() => verifyRepair(incident, true)} style={{ ...styles.button, background: "#166534" }}>Approve repair</button>
-                        <button disabled={saving} onClick={() => verifyRepair(incident, false)} style={{ ...styles.button, background: "#9a3412" }}>Request rework</button>
-                      </div>
-                    </div>
-                  )}
-                  {incident.assignment ? (
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", background: "#102b28", borderRadius: 9, padding: 12 }}>
-                      <div><strong style={{ color: "#86efac" }}>Assigned to {incident.assignment.contractor_name}</strong><div style={{ ...styles.muted, fontSize: 12 }}>Deadline: {incident.assignment.deadline || "Not set"} · Work order: {incident.assignment.work_order || "—"}</div></div>
-                      <button onClick={() => unassign(incident)} disabled={saving} style={{ ...styles.button, background: "#7f1d1d" }}>Remove assignment</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 9, alignItems: "end" }}>
-                      <div><label style={styles.label}>Select contractor</label><select style={styles.input} value={assignments[incident.incident_id]?.contractor_id || ""} onChange={e => setAssignments(v => ({ ...v, [incident.incident_id]: { ...v[incident.incident_id], contractor_id: e.target.value } }))}><option value="">Choose contractor…</option>{contractors.filter(c => c.status === "Active").map(c => <option key={c.contractor_id} value={c.contractor_id}>{c.name}{c.company ? ` · ${c.company}` : ""}</option>)}</select></div>
-                      <div><label style={styles.label}>Target completion date (optional SLA default)</label><input type="date" style={styles.input} value={assignments[incident.incident_id]?.deadline || ""} onChange={e => setAssignments(v => ({ ...v, [incident.incident_id]: { ...v[incident.incident_id], deadline: e.target.value } }))} /><div style={{ ...styles.muted, fontSize: 10, marginTop: 4 }}>Critical 24h · High 72h · Moderate 7d · Low 14d</div></div>
-                      <div><label style={styles.label}>Work order reference</label><input style={styles.input} placeholder="Optional reference" value={assignments[incident.incident_id]?.work_order || ""} onChange={e => setAssignments(v => ({ ...v, [incident.incident_id]: { ...v[incident.incident_id], work_order: e.target.value } }))} /></div>
-                      <button style={styles.button} disabled={saving || contractors.length === 0} onClick={() => assign(incident)}>Assign repair job →</button>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section style={styles.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-            <div><h2 style={{ margin: "0 0 5px", fontSize: 20 }}>Contractor directory</h2><p style={{ ...styles.muted, margin: 0, fontSize: 13 }}>Register approved repair contractors before assigning jobs.</p></div>
-            <span style={{ color: "#93c5fd", fontSize: 13 }}>{contractors.length} registered</span>
-          </div>
-          <form onSubmit={addContractor} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-            {[
-              ["name", "Contractor contact name", true],
-              ["company", "Company / agency", false],
-              ["phone", "Phone number", false],
-              ["email", "Portal login email", true],
-              ["password", "Initial portal password (8+ characters)", true],
-              ["service_area", "Service area / ward", false],
-              ["specialization", "Specialization", false],
-            ].map(([key, label, required]) => <div key={key}><label style={styles.label}>{label}</label><input required={required} minLength={key === "password" ? 8 : undefined} type={key === "password" ? "password" : key === "email" ? "email" : "text"} style={styles.input} value={form[key]} onChange={e => updateForm(key, e.target.value)} placeholder={label} /></div>)}
-            <div style={{ display: "flex", alignItems: "end" }}><button type="submit" disabled={saving} style={{ ...styles.button, width: "100%" }}>{saving ? "Saving…" : "+ Register contractor"}</button></div>
-          </form>
-          {contractors.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 18 }}>{contractors.map(c => <div key={c.contractor_id} style={{ border: "1px solid #263852", borderRadius: 10, padding: 12 }}><strong>{c.name}</strong><div style={{ ...styles.muted, fontSize: 12 }}>{c.company || "Independent contractor"} · {c.service_area || "Area not specified"}</div><div style={{ ...styles.muted, fontSize: 12, marginTop: 5 }}>{c.phone || c.email || "No contact details"}</div><div style={{ marginTop: 10 }}><input type="password" minLength={8} placeholder="Set / reset portal password" style={styles.input} value={credentialPasswords[c.contractor_id] || ""} onChange={e => setCredentialPasswords(v => ({ ...v, [c.contractor_id]: e.target.value }))} /><button disabled={saving || !c.email} onClick={() => saveContractorPassword(c)} style={{ ...styles.button, width: "100%", marginTop: 7 }}>Configure portal access</button></div></div>)}</div>}
-        </section>
-        <p style={{ ...styles.muted, fontSize: 11, marginTop: 18 }}>MVP note: GPS clustering and priority scores are decision-support estimates. Safety, traffic and road-importance values currently use neutral defaults unless supplied by verified data. An authorised municipal officer must validate priorities and contractor eligibility.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 10, marginBottom: 18 }}>
+        {[["Active incidents",stats.total],["Critical priority",stats.critical],["Department referrals",stats.referrals],["Inspections requested",stats.inspections],["Open issues",stats.pending]].map(([label,n]) =>
+          <div key={label} style={ui.card}><div style={{ ...ui.muted, fontSize: 11 }}>{label}</div><div style={{ fontSize: 29, fontWeight: 800, marginTop: 7 }}>{n}</div></div>)}
       </div>
-    </main>
-  );
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        {[["queue","Priority & actions"],["intelligence","Maintenance intelligence"]].map(([id,label]) =>
+          <button key={id} onClick={() => setTab(id)} style={{ ...ui.button, background: tab === id ? "#2563eb" : "#17243a", border: "1px solid #30425f" }}>{label}</button>)}
+        <button onClick={exportReport} style={{ ...ui.button, marginLeft: "auto", background: "#14532d" }}>Export CSV report ↓</button>
+      </div>
+
+      {tab === "intelligence" ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+        {[
+          ["Most affected locations", [...new Set(incidents.map(x => x.location).filter(Boolean))].slice(0,8)],
+          ["Critical incidents", incidents.filter(x => x.priority_band === "Critical").map(x => x.location)],
+          ["Pending department referrals", incidents.filter(x => !x.referral).map(x => x.location)],
+          ["Inspection follow-up", incidents.filter(x => x.inspection?.status !== "Completed").map(x => x.location)],
+        ].map(([title,items]) => <Panel key={title} title={title}><div style={{ fontSize: 27, fontWeight: 800, marginBottom: 8 }}>{items.length}</div>{items.length ? items.map((item,i) => <div key={i} style={{ borderTop: "1px solid #263852", padding: "7px 0", fontSize: 12 }}>{item}</div>) : <span style={ui.muted}>No records in this category.</span>}</Panel>)}
+        <Panel title="Reporting note" hint="This is a live summary of the current incident queue, not an approved government budget or certified engineering assessment.">
+          <p style={{ fontSize: 12, lineHeight: 1.7, ...ui.muted }}>Use this report to identify areas needing preventive maintenance, repeated road damage, critical safety risks, and unresolved referrals. Export the CSV for monthly review and planning.</p>
+        </Panel>
+      </div> : loading ? <p style={ui.muted}>Loading priority queue…</p> : incidents.length === 0 ? <Panel title="No active incidents">Submitted road-damage complaints with AI detections will appear here after they are received by the backend.</Panel> :
+        <div style={{ display: "grid", gap: 12 }}>
+          {incidents.map(incident => {
+            const id = incident.incident_id;
+            const form = forms[id] || {};
+            const open = expanded === id;
+            const rec = incident.maintenance_recommendation || {};
+            return <article key={id} style={{ ...ui.card, borderColor: incident.priority_band === "Critical" ? "#7f344b" : "#24334c" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 220, flex: 1 }}>
+                  <div style={{ ...ui.muted, fontSize: 10, letterSpacing: 1 }}>RANK #{incident.rank} · {id} · {incident.supporting_reports} CITIZEN REPORT(S)</div>
+                  <h2 style={{ fontSize: 18, margin: "6px 0" }}>{incident.location}</h2>
+                  <div style={{ ...ui.muted, fontSize: 12 }}>{incident.description || "No citizen description"} · {incident.severity} damage</div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#9fb2cb" }}>Department: {incident.department || "Not assigned"} · Status: {incident.status || "In Review"}</div>
+                </div>
+                <div style={{ minWidth: 110, textAlign: "right" }}>
+                  <div style={{ color: bandColor(incident.priority_band), fontWeight: 800 }}>{incident.priority_band}</div>
+                  <div style={{ fontSize: 29, fontWeight: 800 }}>{incident.priority_score}<span style={{ fontSize: 12, ...ui.muted }}>/100</span></div>
+                  <div style={{ fontSize: 10, ...ui.muted }}>Priority score</div>
+                </div>
+              </div>
+              <div style={{ height: 6, background: "#1e293b", borderRadius: 99, overflow: "hidden", margin: "13px 0" }}><div style={{ width: `${incident.priority_score || 0}%`, height: "100%", background: bandColor(incident.priority_band) }} /></div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button style={ui.button} onClick={() => setExpanded(open ? "" : id)}>{open ? "Hide action panel" : "Review & take action →"}</button>
+                {incident.lat != null && incident.lng != null && <a href={`https://www.google.com/maps?q=${incident.lat},${incident.lng}`} target="_blank" rel="noreferrer" style={{ color: "#93c5fd", fontSize: 12, padding: 10 }}>Open location map ↗</a>}
+                {incident.referral?.reference_number && <span style={{ color: "#86efac", fontSize: 11 }}>Referral: {incident.referral.reference_number}</span>}
+              </div>
+
+              {open && <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+                <Panel title="1 · Department referral" hint="Select the authority responsible for this road. The prototype records a referral and creates a reference number; it does not submit directly to a government portal.">
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 }}>
+                    <div><label style={ui.label}>Responsible department</label><select style={ui.input} value={value(id,"department",incident.department && incident.department !== "Unassigned" ? incident.department : DEPARTMENTS[0])} onChange={e => setValue(id,"department",e.target.value)}>{DEPARTMENTS.map(x => <option key={x}>{x}</option>)}</select></div>
+                    <div><label style={ui.label}>Office / authority name</label><input style={ui.input} value={value(id,"authority",incident.authority === "Unassigned" ? "" : incident.authority)} onChange={e => setValue(id,"authority",e.target.value)} placeholder="e.g. Assistant Executive Engineer" /></div>
+                    <div><label style={ui.label}>Referral note</label><input style={ui.input} value={value(id,"referral_note","")} onChange={e => setValue(id,"referral_note",e.target.value)} placeholder="Reason for forwarding" /></div>
+                  </div>
+                  <button disabled={saving === id} style={{ ...ui.button, marginTop: 10 }} onClick={() => perform(id,"refer",{ department:value(id,"department",DEPARTMENTS[0]), authority:value(id,"authority",""), note:value(id,"referral_note","") },`Referral recorded for ${id}.`)}>Generate referral & reference number</button>
+                  {incident.referral && <p style={{ color: "#86efac", fontSize: 12, marginBottom: 0 }}>Ref: {incident.referral.reference_number} · {incident.referral.department} · {incident.referral.created_at}</p>}
+                </Panel>
+
+                <Panel title="2 · Physical inspection" hint="Request an authorized field officer to verify the road condition before maintenance decisions.">
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 }}>
+                    <div><label style={ui.label}>Field officer / team</label><input style={ui.input} value={value(id,"officer","")} onChange={e => setValue(id,"officer",e.target.value)} placeholder="Officer or inspection team" /></div>
+                    <div><label style={ui.label}>Inspection instructions</label><input style={ui.input} value={value(id,"inspection_note","")} onChange={e => setValue(id,"inspection_note",e.target.value)} placeholder="What should be checked?" /></div>
+                  </div>
+                  <button disabled={saving === id} style={{ ...ui.button, marginTop: 10, background: "#6d28d9" }} onClick={() => perform(id,"inspection",{ officer:value(id,"officer","Field Inspection Team"), note:value(id,"inspection_note","Verify road damage and safety risk") },`Inspection request created for ${id}.`)}>Request field inspection</button>
+                  {incident.inspection && <div style={{ marginTop: 10, fontSize: 12, color: "#c4b5fd" }}>Inspection: {incident.inspection.status} · {incident.inspection.officer || "Officer not assigned"}<p style={{ ...ui.muted, margin: "4px 0" }}>{incident.inspection.observation || incident.inspection.note || "Awaiting field observations."}</p></div>}
+                  <div style={{ marginTop: 10 }}><label style={ui.label}>Record field observations (admin-entered for prototype)</label><textarea style={{ ...ui.input, minHeight: 72, resize: "vertical" }} value={value(id,"observation","")} onChange={e => setValue(id,"observation",e.target.value)} placeholder="Observed depth, dimensions, traffic risk, drainage, and recommended action…" /><button disabled={saving === id || !value(id,"observation","").trim()} style={{ ...ui.button, marginTop: 8, background: "#5b21b6" }} onClick={() => perform(id,"inspection-result",{ observation:value(id,"observation","") },`Inspection observations saved for ${id}.`)}>Save inspection result</button></div>
+                </Panel>
+
+                <Panel title="3 · Maintenance recommendation" hint="Preliminary guidance based on AI severity. It is not an engineering certification, tender, or approved budget.">
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 8 }}>
+                    {[["Recommended action",rec.action || (incident.severity === "Major" ? "Technical inspection and detailed repair assessment" : incident.severity === "Moderate" ? "Detailed inspection and patch repair assessment" : "Routine patch repair assessment")],["Planning priority",incident.priority_band || "Pending"],["Estimate status","Preliminary — not an approved cost"]].map(([k,v]) => <div key={k} style={{ background: "#091426", borderRadius: 9, padding: 11 }}><div style={{ ...ui.muted, fontSize: 10 }}>{k}</div><div style={{ fontSize: 12, marginTop: 5 }}>{v}</div></div>)}
+                  </div>
+                </Panel>
+
+                <Panel title="4 · Repair evidence & closure" hint="When the responsible authority reports completion, attach an after-repair photograph. An admin must review it before closing the issue.">
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+                    <div style={{ flex: 1, minWidth: 220 }}><label style={ui.label}>Upload after-repair photograph</label><input type="file" accept="image/png,image/jpeg,image/webp" style={{ ...ui.input, padding: 7 }} onChange={e => uploadRepairEvidence(incident,e.target.files?.[0])} /></div>
+                    <button disabled={saving === id} style={{ ...ui.button, background: "#166534" }} onClick={() => perform(id,"close",{ note:value(id,"closure_note","Evidence reviewed by admin") },`Incident ${id} closed after admin verification.`)}>Verify evidence & close</button>
+                    <button disabled={saving === id} style={{ ...ui.button, background: "#9a3412" }} onClick={() => perform(id,"reopen",{ note:value(id,"closure_note","Further work required") },`Incident ${id} reopened.`)}>Reopen / request further action</button>
+                  </div>
+                  <label style={{ ...ui.label, marginTop: 10 }}>Verification note</label><input style={ui.input} value={value(id,"closure_note","")} onChange={e => setValue(id,"closure_note",e.target.value)} placeholder="Record why the repair is accepted or rejected" />
+                  {(incident.repair_evidence || []).map((e,i) => <div key={i} style={{ marginTop: 8 }}><a href={API + e.url} target="_blank" rel="noreferrer" style={{ color: "#93c5fd", fontSize: 12 }}>View uploaded evidence {i+1} ↗</a></div>)}
+                </Panel>
+              </div>}
+            </article>;
+          })}
+        </div>}
+      <p style={{ ...ui.muted, fontSize: 11, marginTop: 18, lineHeight: 1.6 }}>SmartRoad AI is a decision-support prototype. Department referrals are recorded in this system for demonstration and are not official submissions unless an authorized integration is configured. Field observations and closure decisions require human verification.</p>
+    </div>
+  </main>;
 }
