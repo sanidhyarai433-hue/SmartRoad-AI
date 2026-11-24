@@ -2107,6 +2107,8 @@ def _build_priority_incidents():
             "sla": sla,
             "contractor_work": first.get("contractor_work") or {},
             "referral": first.get("referral"),
+            "department_request": first.get("department_request"),
+            "municipality": first.get("municipality") or first.get("authority") or "Unassigned",
             "inspection": first.get("inspection"),
             "repair_evidence": first.get("repair_evidence") or [],
             "maintenance_recommendation": {
@@ -2125,6 +2127,49 @@ def get_priority_incidents():
     """Return grouped active road incidents ranked by explainable priority score."""
     incidents = _build_priority_incidents()
     return {"success": True, "count": len(incidents), "data": incidents}
+
+
+
+@app.post("/admin/department-requests")
+def send_department_request(payload: dict = Body(...)):
+    """Create one consolidated request for multiple ranked incidents assigned to one authority."""
+    incident_ids = list(dict.fromkeys(str(value) for value in (payload.get("incident_ids") or [])))
+    if not incident_ids:
+        raise HTTPException(status_code=400, detail="Select at least one incident.")
+    all_incidents = _build_priority_incidents()
+    selected = [item for item in all_incidents if item["incident_id"] in incident_ids]
+    if len(selected) != len(incident_ids):
+        raise HTTPException(status_code=404, detail="One or more selected incidents are no longer active. Refresh the queue.")
+    authority_keys = {(str(item.get("department") or "").strip().lower(), str(item.get("authority") or "").strip().lower()) for item in selected}
+    if len(authority_keys) != 1 or any(not a or a == "unassigned" for _, a in authority_keys) or any(not d or d == "unassigned" for d, _ in authority_keys):
+        raise HTTPException(status_code=400, detail="Selected incidents must have the same assigned department and municipality/office.")
+    if any(item.get("department_request") for item in selected):
+        raise HTTPException(status_code=409, detail="A request has already been sent for one or more selected incidents.")
+    department = selected[0]["department"]
+    authority = selected[0]["authority"]
+    ordered = sorted(selected, key=lambda item: (item.get("priority_score", 0), item.get("supporting_reports", 0)), reverse=True)
+    timestamp = datetime.now().isoformat()
+    request_record = {
+        "request_id": "SR-REQ-" + datetime.now().strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6].upper(),
+        "department": department, "municipality": authority,
+        "incident_ids": [item["incident_id"] for item in ordered],
+        "complaint_ids": [str(report_id) for item in ordered for report_id in item["report_ids"]],
+        "incident_count": len(ordered),
+        "complaint_count": sum(item.get("supporting_reports", 0) for item in ordered),
+        "priority_order": [{"rank": index, "incident_id": item["incident_id"], "location": item["location"], "priority": item["priority_band"], "score": item["priority_score"]} for index, item in enumerate(ordered, 1)],
+        "created_at": timestamp,
+        "status": "Request sent (prototype dispatch record)",
+        "note": str(payload.get("note") or "Consolidated road damage complaints requiring department review.").strip(),
+    }
+    persisted = load_persisted_reports()
+    for item in ordered:
+        for report_id in item["report_ids"]:
+            stored = next((r for r in persisted if str(r.get("id")) == str(report_id)), {})
+            history = list(stored.get("authority_workflow") or [])
+            history.append({"action": "consolidated_department_request_sent", "actor": "SmartRoad AI admin", "timestamp": timestamp, "details": request_record})
+            update_persisted_report(int(report_id), {"department_request": request_record, "status": "Request Sent to Department", "authority_workflow": history})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Consolidated department request created", "data": request_record}
 
 
 @app.get("/admin/contractors")
