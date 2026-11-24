@@ -2224,6 +2224,35 @@ def triage_priority_incident(incident_id: str, payload: dict = Body(...)):
 
 
 
+
+@app.get("/admin/maintenance/intelligence")
+def get_maintenance_intelligence():
+    """Aggregate submitted complaints, including completed cases, for admin planning reports."""
+    reports = [
+        dict(item) for item in load_persisted_reports()
+        if str(item.get("submission_status") or "submitted").lower() != "draft"
+        and str(item.get("status") or "").lower() not in {"pending submission"}
+    ]
+    area_counts = {}
+    for report in reports:
+        area = str(report.get("location") or "Location not provided").strip()
+        area_counts[area] = area_counts.get(area, 0) + 1
+    repeated = [{"location": area, "reports": count} for area, count in area_counts.items() if count > 1]
+    repeated.sort(key=lambda item: item["reports"], reverse=True)
+    return {
+        "success": True,
+        "data": {
+            "total_complaints": len(reports),
+            "critical_complaints": sum(1 for report in reports if str(report.get("priority_override") or "").lower() == "critical" or _report_severity(report) == "Major"),
+            "pending_referrals": sum(1 for report in reports if report.get("referral") and str(report.get("status") or "").lower() != "completed"),
+            "inspections_completed": sum(1 for report in reports if (report.get("inspection") or {}).get("status") == "Completed"),
+            "repairs_verified": sum(1 for report in reports if str(report.get("status") or "").lower() == "completed" and report.get("repair_evidence")),
+            "repeated_damage_locations": repeated[:12],
+            "areas_by_complaints": [{"location": area, "reports": count} for area, count in sorted(area_counts.items(), key=lambda pair: pair[1], reverse=True)[:12]],
+        }
+    }
+
+
 @app.post("/admin/priority/incidents/{incident_id}/refer")
 def refer_priority_incident(incident_id: str, payload: dict = Body(...)):
     """Record a department referral and reference number for every report in a grouped incident."""
