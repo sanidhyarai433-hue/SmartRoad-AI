@@ -2225,7 +2225,7 @@ def triage_priority_incident(incident_id: str, payload: dict = Body(...)):
     if not department or not authority:
         raise HTTPException(status_code=400, detail="Department and responsible authority are required.")
 
-    changes = {"department": department, "authority": authority}
+    changes = {"department": department, "authority": authority, "municipality": str(payload.get("municipality") or authority).strip()}
     for field in ("safety_risk", "traffic_exposure", "road_importance"):
         if field in payload and payload[field] not in (None, ""):
             try:
