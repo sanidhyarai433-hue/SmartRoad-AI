@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+const MUNICIPALITIES = ["Mysuru City Corporation","Mangaluru City Corporation","BBMP Bengaluru","Hubballi-Dharwad Municipal Corporation","Belagavi City Corporation","Local Gram Panchayat","Other / Specify manually"];
+
 const DEPARTMENTS = [
   "Public Works Department (PWD)",
   "National Highways Authority of India (NHAI)",
@@ -51,6 +53,8 @@ export default function RoadPriorityPage() {
   const [tab, setTab] = useState("queue");
   const [intelligence, setIntelligence] = useState(null);
   const [departmentBusy, setDepartmentBusy] = useState("");
+  const [municipalAssignments, setMunicipalAssignments] = useState({});
+  const [localDepartmentRequests, setLocalDepartmentRequests] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -76,32 +80,40 @@ export default function RoadPriorityPage() {
     pending: incidents.filter(x => !["Completed", "Closed", "False Image/Rejected"].includes(x.status)).length,
   }), [incidents]);
 
+  useEffect(() => {
+    setMunicipalAssignments(prev => {
+      const next = { ...prev };
+      incidents.forEach(item => { if (!next[item.incident_id]) next[item.incident_id] = { municipality: item.municipality || "", department: item.department || "", office: item.authority || "" }; });
+      return next;
+    });
+  }, [incidents]);
+
+  const updateMunicipalAssignment = (id, field, val) => {
+    setMunicipalAssignments(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field]: val } }));
+    setLocalDepartmentRequests({});
+  };
+
   const departmentGroups = useMemo(() => {
     const groups = new Map();
     incidents.forEach(item => {
       if (!item.admin_verified) return;
-      const department = String(item.department || "").trim();
-      const authority = String(item.authority || "").trim();
-      if (!department || department === "Unassigned" || !authority || authority === "Unassigned") return;
-      const key = `${department.toLowerCase()}|${authority.toLowerCase()}`;
-      if (!groups.has(key)) groups.set(key, { key, department, authority, incidents: [] });
+      const a = municipalAssignments[item.incident_id] || {};
+      const municipality = String(a.municipality || "").trim();
+      const department = String(a.department || "").trim();
+      const office = String(a.office || "").trim();
+      if (!municipality || !department || municipality === "Other / Specify manually") return;
+      const key = [municipality, department, office].join("|").toLowerCase();
+      if (!groups.has(key)) groups.set(key, { key, municipality, department, office, incidents: [] });
       groups.get(key).incidents.push(item);
     });
-    return [...groups.values()].map(group => ({ ...group, incidents: group.incidents.sort((a,b) => (b.priority_score || 0) - (a.priority_score || 0)) }));
-  }, [incidents]);
+    return [...groups.values()].map(g => ({ ...g, incidents: g.incidents.sort((a,b) => (b.priority_score || 0) - (a.priority_score || 0)) }));
+  }, [incidents, municipalAssignments]);
 
-  async function sendDepartmentRequest(group) {
-    const pending = group.incidents.filter(item => !item.department_request);
-    if (!pending.length) return;
-    setDepartmentBusy(group.key); setError(""); setNotice("");
-    try {
-      const result = await request("/admin/department-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ incident_ids: pending.map(item => item.incident_id), note: "Consolidated priority-ranked road damage complaints for municipal review and necessary action." }) });
-      setNotice(`Request ${result.data.request_id} created for ${group.authority}, covering ${result.data.incident_count} incidents and ${result.data.complaint_count} citizen complaints.`);
-      await load();
-    } catch (e) { setError(e.message); }
-    finally { setDepartmentBusy(""); }
+  function sendDepartmentRequest(group) {
+    const requestId = "SR-DEMO-" + Date.now().toString().slice(-7);
+    setLocalDepartmentRequests(prev => ({ ...prev, [group.key]: { request_id: requestId, incident_ids: group.incidents.map(x => x.incident_id), created_at: new Date().toLocaleString(), status: "Prepared for municipality (frontend demo)" } }));
+    setNotice("Demo request " + requestId + " prepared for " + group.municipality + ". No external department was contacted.");
   }
-
   const value = (id, key, fallback = "") => forms[id]?.[key] ?? fallback;
   const setValue = (id, key, val) => setForms(old => ({ ...old, [id]: { ...old[id], [key]: val } }));
 
