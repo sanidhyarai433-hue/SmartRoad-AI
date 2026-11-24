@@ -320,43 +320,53 @@ function LocationPicker({ location, onLocation }) {
     iconSize:[16,16], iconAnchor:[8,8],
   });
 
-  const placeAt = async (L, lat, lng) => {
-    const road = await revGeo(lat, lng);
+  const placeAt = (L, lat, lng) => {
     if (!mapInst.current) return;
+    const capturedAt = new Date().toISOString();
+    const coordinates = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     if (markerRef.current) markerRef.current.setLatLng([lat,lng]);
     else {
       markerRef.current = L.marker([lat,lng], { icon:mkIcon(L), draggable:true }).addTo(mapInst.current);
-      markerRef.current.on("dragend", async () => {
+      markerRef.current.on("dragend", () => {
         const p = markerRef.current.getLatLng();
-        const r = await revGeo(p.lat, p.lng);
-        onLocation({ lat:p.lat, lng:p.lng, road:r, captured_at:new Date().toISOString() });
+        const captured = new Date().toISOString();
+        const fallback = `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+        onLocation({ lat:p.lat, lng:p.lng, road:fallback, captured_at:captured });
+        revGeo(p.lat, p.lng).then(road => onLocation({ lat:p.lat, lng:p.lng, road, captured_at:captured }));
       });
     }
-    mapInst.current.flyTo([lat,lng], 16, { duration:1.4 });
-    onLocation({ lat, lng, road, captured_at:new Date().toISOString() });
+    mapInst.current.flyTo([lat,lng], 16, { duration:0.7 });
+    // GPS coordinates are usable immediately; address lookup runs in the background.
+    onLocation({ lat, lng, road:coordinates, captured_at:capturedAt });
+    revGeo(lat, lng).then(road => onLocation({ lat, lng, road, captured_at:capturedAt }));
   };
 
   const revGeo = async (lat, lng) => {
+    const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
     try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { signal:controller.signal });
+      if (!r.ok) return fallback;
       const d = await r.json();
-      return d.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    } catch { return `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
+      return d.display_name || fallback;
+    } catch { return fallback; }
+    finally { clearTimeout(timer); }
   };
 
   const detect = () => {
     setLoading(true); setError("");
     if (!navigator.geolocation) { setError("Geolocation not supported."); setLoading(false); return; }
     navigator.geolocation.getCurrentPosition(
-      async pos => {
-        if (L_ref.current) await placeAt(L_ref.current, pos.coords.latitude, pos.coords.longitude);
+      pos => {
+        if (L_ref.current) placeAt(L_ref.current, pos.coords.latitude, pos.coords.longitude);
         setLoading(false);
       },
       err => {
-        setError(err.code === 1 ? "Location denied — please allow permissions." : "Could not get location.");
+        setError(err.code === 1 ? "Location denied — please allow permissions." : "Could not get location. Try again or select the point on the map.");
         setLoading(false);
       },
-      { timeout:10000 }
+      { enableHighAccuracy:false, timeout:7000, maximumAge:60000 }
     );
   };
 
