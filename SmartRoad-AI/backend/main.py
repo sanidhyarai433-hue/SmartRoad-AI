@@ -293,7 +293,14 @@ def get_severity_color(severity):
 def detect_potholes(image_array):
     """Run thread-safe YOLO detection on image and return real model outputs."""
     with _IMAGE_MODEL_LOCK:
-        results = model(image_array)
+        # CPU-friendly image inference settings for single-photo reports.
+        results = model.predict(
+            source=image_array,
+            imgsz=512,
+            device="cpu",
+            verbose=False,
+            max_det=50,
+        )
     detections = []
     # Allowed class names for potholes (update if your model uses a different label)
     ALLOWED_CLASSES = {"pothole", "potholes"}
@@ -578,7 +585,7 @@ async def detect_image(
         image_width = image.shape[1]
 
         # Downscale large images to reduce peak RAM during YOLO inference
-        MAX_DIM = 800
+        MAX_DIM = 640
         h, w = image.shape[:2]
         if max(h, w) > MAX_DIM:
             scale = MAX_DIM / max(h, w)
