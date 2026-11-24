@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "");
 const dateText = value => value ? new Date(value).toLocaleString() : "Date unavailable";
 const severityOf = report => report.priority || (report.severity?.Major ? "Major" : report.severity?.Moderate ? "Moderate" : report.severity?.Minor ? "Minor" : "Not classified");
 
