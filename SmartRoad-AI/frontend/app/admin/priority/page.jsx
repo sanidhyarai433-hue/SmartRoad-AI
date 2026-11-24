@@ -185,7 +185,7 @@ export default function RoadPriorityPage() {
                     <div><label style={ui.label}>Referral note</label><input style={ui.input} value={value(id,"referral_note","")} onChange={e => setValue(id,"referral_note",e.target.value)} placeholder="Reason for forwarding" /></div>
                   </div>
                   <button disabled={saving === id} style={{ ...ui.button, marginTop: 10 }} onClick={() => perform(id,"refer",{ department:value(id,"department",DEPARTMENTS[0]), authority:value(id,"authority",""), note:value(id,"referral_note","") },`Referral recorded for ${id}.`)}>Generate referral & reference number</button>
-                  {incident.referral && <p style={{ color: "#86efac", fontSize: 12, marginBottom: 0 }}>Ref: {incident.referral.reference_number} · {incident.referral.department} · {incident.referral.created_at}</p>}
+                  {incident.referral && <div style={{ color: "#86efac", fontSize: 12, marginBottom: 0 }}>Ref: {incident.referral.reference_number} · {incident.referral.department} · {incident.referral.created_at} · <a href={`${API}/admin/priority/incidents/${id}/referral.pdf`} target="_blank" rel="noreferrer" style={{ color: "#93c5fd" }}>Download referral memo ↗</a></div>}
                 </Panel>
 
                 <Panel title="2 · Physical inspection" hint="Request an authorized field officer to verify the road condition before maintenance decisions.">
