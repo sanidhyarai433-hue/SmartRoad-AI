@@ -26,7 +26,7 @@ export default function MyReportsPage() {
       return;
     }
     try {
-      const response = await fetch(`${API}/user/complaints`, {
+      const response = await fetch(`${API}/user/reports`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store"
       });
@@ -62,7 +62,7 @@ export default function MyReportsPage() {
         <div>
           <Link href="/" style={{color:"#65c9ee",textDecoration:"none",fontSize:13}}>← Back to SmartRoad AI</Link>
           <h1 style={{fontSize:"clamp(28px,4vw,38px)",margin:"14px 0 8px"}}>My Reports</h1>
-          <p style={styles.muted}>All your AI-generated road inspection reports in one place. Open any report to read the full details or save it as a PDF.</p>
+          <p style={styles.muted}>Your AI-generated reports, including drafts waiting for your confirmation. Open any report to review the written details or save the document as a PDF.</p>
         </div>
         <button onClick={loadReports} style={styles.button}>↻ Refresh reports</button>
       </div>
@@ -76,7 +76,7 @@ export default function MyReportsPage() {
         <strong>Unable to load reports</strong><p style={styles.muted}>{error}</p><button onClick={loadReports} style={styles.button}>Try again</button>
       </section> : reports.length === 0 ? <section style={{...styles.panel,textAlign:"center",padding:44}}>
         <div style={{fontSize:38}}>📄</div><h2 style={{margin:"10px 0"}}>No reports yet</h2>
-        <p style={styles.muted}>After you run AI detection and confirm a report, it will appear here.</p>
+        <p style={styles.muted}>After AI detection, your draft report appears here immediately. You can open it, review it, and submit it when ready.</p>
         <Link href="/user-upload" style={{display:"inline-block",marginTop:14,color:"#65c9ee"}}>Create a road report →</Link>
       </section> : <>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:18}}>
@@ -86,7 +86,7 @@ export default function MyReportsPage() {
         </div>
         <div style={{display:"grid",gap:12}}>
           {reports.map(report => {
-            const isSubmitted = String(report.submission_status || "").toLowerCase() === "submitted" || (report.status && String(report.status).toLowerCase() !== "pending submission");
+            const isSubmitted = String(report.submission_status || "").toLowerCase() === "submitted";
             return <article key={report.id} style={{...styles.panel,display:"flex",justifyContent:"space-between",alignItems:"center",gap:18,flexWrap:"wrap"}}>
               <div style={{minWidth:0,flex:"1 1 360px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -97,7 +97,7 @@ export default function MyReportsPage() {
                 <div style={{...styles.muted,fontSize:13}}>{report.damage_type || "Road damage"} · {severityOf(report)} · {Number(report.detections || 0)} detected issue(s)</div>
                 <div style={{...styles.muted,fontSize:12,marginTop:6}}>Created {dateText(report.timestamp)}{report.submitted_at ? ` · Submitted ${dateText(report.submitted_at)}` : ""}</div>
               </div>
-              <button style={{...styles.button,background:"#087eae",borderColor:"#38bdf8"}} onClick={() => router.push(`/complaint-report/${report.id}`)}>Open full report & PDF →</button>
+              <button style={{...styles.button,background:"#087eae",borderColor:"#38bdf8"}} onClick={() => router.push(`/complaint-report/${report.id}`)}>Open report & PDF →</button>
             </article>;
           })}
         </div>
