@@ -1,4 +1,4 @@
-const BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com/").replace(/\\/+$/, "") + "/"
+const BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "") + "/"
 
 export const endPoints = {
     DEMO_API: BASE_URL + "demo",
