@@ -2109,6 +2109,7 @@ def _build_priority_incidents():
             "referral": first.get("referral"),
             "department_request": first.get("department_request"),
             "municipality": first.get("municipality") or first.get("authority") or "Unassigned",
+            "admin_verified": bool(first.get("admin_verified")),
             "inspection": first.get("inspection"),
             "repair_evidence": first.get("repair_evidence") or [],
             "maintenance_recommendation": {
@@ -2212,6 +2213,24 @@ def create_contractor(payload: dict = Body(...)):
         connection.execute(contractors_table.insert().values(contractor_id=contractor_id, payload=contractor))
     return {"success": True, "message": "Contractor registered", "data": {k: v for k, v in contractor.items() if k not in {"salt", "pwd_hash", "token"}}}
 
+
+
+
+@app.post("/admin/priority/incidents/{incident_id}/verify")
+def verify_priority_incident(incident_id: str, payload: dict = Body(default={})):
+    """Record the admin's visual review of the AI-generated complaint evidence."""
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    note = str(payload.get("note") or "AI evidence visually reviewed by admin").strip()
+    timestamp = datetime.now().isoformat()
+    for report_id in incident["report_ids"]:
+        stored = next((r for r in load_persisted_reports() if str(r.get("id")) == str(report_id)), {})
+        history = list(stored.get("authority_workflow") or [])
+        history.append({"action": "complaint_visually_verified", "actor": "SmartRoad AI admin", "timestamp": timestamp, "details": {"note": note}})
+        update_persisted_report(int(report_id), {"admin_verified": True, "admin_verified_at": timestamp, "admin_verification_note": note, "status": "Verified - Awaiting Department", "authority_workflow": history})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Complaint visually verified by admin"}
 
 
 @app.post("/admin/priority/incidents/{incident_id}/triage")
