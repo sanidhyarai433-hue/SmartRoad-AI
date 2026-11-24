@@ -495,6 +495,15 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
       </div>
 
       <div style={{ display:"flex", gap:".75rem", flexWrap:"wrap" }}>
+        {result.complaint?.id && (
+          <button
+            className="btn-ghost"
+            style={{ flex:"1 1 220px", color:"#67e8f9", borderColor:"rgba(6,182,212,.45)", background:"rgba(6,182,212,.08)" }}
+            onClick={() => onConfirm()}
+          >
+            📄 View My Report
+          </button>
+        )}
         <button className="btn-grad" style={{ flex:"1 1 220px" }} onClick={onConfirm}>Confirm &amp; Return →</button>
         <button className="btn-ghost" onClick={onReset}>Cancel / Start over</button>
         <button className="btn-ghost" onClick={share}>{copied ? "✓ Copied!" : <>{I.share()} Share</>}</button>
