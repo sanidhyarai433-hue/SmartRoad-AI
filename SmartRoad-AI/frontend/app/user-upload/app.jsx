@@ -556,30 +556,34 @@ function DetectionResult({ result, location, onReset, onConfirm, onSubmitComplai
                 #sr-report-document .sr-report-actions, #sr-report-document .sr-report-note { display: none !important; }
               }
             `}</style>
-            <div className="sr-report-actions" style={{ display:"flex", gap:".65rem", flexWrap:"wrap" }}>
-              <button className="btn-grad" type="button" onClick={() => window.print()}>⬇ Download Report PDF</button>
-              <button className="btn-ghost" type="button" onClick={() => onConfirm()}>Open Full Report →</button>
-            </div>
-            <p className="sr-report-note" style={{ color:"#94a3b8", fontSize:".68rem", lineHeight:1.5 }}>This is a draft report. It becomes an official complaint only after you select Submit Complaint.</p>
+            <p className="sr-report-note" style={{ color:"#94a3b8", fontSize:".68rem", lineHeight:1.5 }}>
+              {String(result.complaint?.submission_status || "").toLowerCase() === "submitted"
+                ? "This report has been finalized and submitted. Open the current report to view the formatted document and save it as a PDF."
+                : "This is a preview draft. Confirm and finalize it below to sync the official report to the report server."}
+            </p>
           </section>
         );
       })()}
 
       <div style={{ display:"flex", gap:".75rem", flexWrap:"wrap" }}>
-        {result.complaint?.id && (
-          <button
-            className="btn-ghost"
-            style={{ flex:"1 1 220px", color:"#67e8f9", borderColor:"rgba(6,182,212,.45)", background:"rgba(6,182,212,.08)" }}
-            onClick={() => onConfirm()}
-          >
-            📄 View My Report
+        {String(result.complaint?.submission_status || "").toLowerCase() === "submitted" ? (
+          <button className="btn-grad" style={{ flex:"1 1 260px" }} onClick={onConfirm}>
+            📄 Current Report · View Written Report & PDF →
+          </button>
+        ) : (
+          <button className="btn-grad" style={{ flex:"1 1 260px" }} onClick={onSubmitComplaint} disabled={officialSubmitting}>
+            {officialSubmitting ? "Finalizing & syncing…" : "✓ Confirm & Finalize Report"}
           </button>
         )}
-        <button className="btn-grad" style={{ flex:"1 1 220px" }} onClick={onSubmitComplaint} disabled={officialSubmitting}>{officialSubmitting ? "Submitting…" : "Submit Complaint"}</button>
-        <button className="btn-ghost" style={{ flex:"1 1 220px" }} onClick={onConfirm}>Confirm &amp; View Full Report →</button>
         <button className="btn-ghost" onClick={onReset}>Cancel / Start over</button>
         <button className="btn-ghost" onClick={share}>{copied ? "✓ Copied!" : <>{I.share()} Share</>}</button>
       </div>
+      {String(result.complaint?.submission_status || "").toLowerCase() === "submitted" && (
+        <div style={{ marginTop:".85rem", padding:"1rem", borderRadius:".85rem", border:"1px solid rgba(52,211,153,.35)", background:"rgba(16,185,129,.08)" }}>
+          <p style={{ color:"#6ee7b7", fontWeight:800, fontSize:".9rem" }}>Report finalized and synced successfully</p>
+          <p style={{ color:"#cbd5e1", fontSize:".78rem", marginTop:".35rem", lineHeight:1.5 }}>Your current report is ready. Open it to read the complete boxed report and use Download PDF to save the document.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -632,7 +636,7 @@ export default function SmartRoadReport() {
         complaint: { ...current.complaint, status: payload.data?.status || "Submitted", submission_status: "submitted" },
         report: { ...(current.report || {}), ...(payload.data || {}), submission_status: "submitted", status: payload.data?.status || "Submitted" },
       }) : current);
-      router.push(`/complaint-report/${reportId}`);
+
     } catch (err) {
       setError(err.message || "Complaint submission failed. Your draft is still saved.");
     } finally {
