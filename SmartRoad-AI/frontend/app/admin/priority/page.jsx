@@ -79,6 +79,7 @@ export default function RoadPriorityPage() {
   const departmentGroups = useMemo(() => {
     const groups = new Map();
     incidents.forEach(item => {
+      if (!item.admin_verified) return;
       const department = String(item.department || "").trim();
       const authority = String(item.authority || "").trim();
       if (!department || department === "Unassigned" || !authority || authority === "Unassigned") return;
@@ -165,8 +166,8 @@ export default function RoadPriorityPage() {
       </div>
 
       {tab === "departments" ? <div style={{ display: "grid", gap: 12 }}>
-        <Panel title="Municipality-wise consolidated requests" hint="Assign each incident to its responsible municipality/department in Priority ranking. Incidents assigned to the same office are grouped here and sorted by priority score.">
-          {departmentGroups.length === 0 ? <p style={ui.muted}>No incidents have a responsible department and municipality assigned yet. Open Priority ranking, review an incident, and save its department and municipal authority first.</p> : departmentGroups.map(group => {
+        <Panel title="Municipality-wise consolidated requests" hint="Assign each incident to its responsible municipality/department in Priority ranking. Only visually verified incidents assigned to the same office are grouped here and sorted by priority score.">
+          {departmentGroups.length === 0 ? <p style={ui.muted}>No visually verified incidents have a responsible department and municipality assigned yet. Open Priority ranking, visually verify each complaint, then save its responsible department and municipal authority.</p> : departmentGroups.map(group => {
             const pending = group.incidents.filter(item => !item.department_request);
             const sent = group.incidents.filter(item => item.department_request);
             return <div key={group.key} style={{ border: "1px solid #30425f", borderRadius: 12, padding: 14, marginTop: 10 }}>
@@ -214,7 +215,8 @@ export default function RoadPriorityPage() {
               </div>
               <div style={{ height: 6, background: "#1e293b", borderRadius: 99, overflow: "hidden", margin: "13px 0" }}><div style={{ width: `${incident.priority_score || 0}%`, height: "100%", background: bandColor(incident.priority_band) }} /></div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <button style={ui.button} onClick={() => setExpanded(open ? "" : id)}>{open ? "Hide action panel" : "Review & take action →"}</button>
+                <button style={ui.button} onClick={() => setExpanded(open ? "" : id)}>{open ? "Hide action panel" : "Review complaint →"}</button>
+                {incident.admin_verified ? <span style={{ color: "#86efac", fontSize: 11, padding: 10 }}>✓ Visually verified</span> : <button disabled={saving === id} style={{ ...ui.button, background: "#166534" }} onClick={() => perform(id,"verify",{ note:"AI-generated image and detection evidence visually reviewed by admin." },`Complaint ${id} visually verified.`)}>Verify complaint</button>}
                 {incident.lat != null && incident.lng != null && <a href={`https://www.google.com/maps?q=${incident.lat},${incident.lng}`} target="_blank" rel="noreferrer" style={{ color: "#93c5fd", fontSize: 12, padding: 10 }}>Open location map ↗</a>}
                 {incident.referral?.reference_number && <span style={{ color: "#86efac", fontSize: 11 }}>Referral: {incident.referral.reference_number}</span>}
               </div>
