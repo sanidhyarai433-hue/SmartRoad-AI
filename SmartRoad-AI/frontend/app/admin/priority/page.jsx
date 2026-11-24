@@ -141,8 +141,8 @@ export default function RoadPriorityPage() {
 
   const exportReport = () => {
     const rows = [
-      ["Incident ID","Location","Priority","Score","Severity","Reports","Department","Status","Referral reference","Inspection status"],
-      ...incidents.map(x => [x.incident_id, x.location, x.priority_band, x.priority_score, x.severity, x.supporting_reports, x.department || "", x.status || "", x.referral?.reference_number || "", x.inspection?.status || ""])
+      ["Incident ID","Location","Priority","Score","Severity","Reports","Assigned Municipality","Assigned Department","Status"],
+      ...incidents.map(x => [x.incident_id, x.location, x.priority_band, x.priority_score, x.severity, x.supporting_reports, municipalAssignments[x.incident_id]?.municipality || "", municipalAssignments[x.incident_id]?.department || "", x.status || ""])
     ];
     const csv = rows.map(row => row.map(v => '"' + String(v ?? "").replaceAll('"','""') + '"').join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -179,7 +179,7 @@ export default function RoadPriorityPage() {
 
       {tab === "departments" ? <div style={{ display: "grid", gap: 12 }}>
         <Panel title="Municipality-wise consolidated requests" hint="Only visually verified complaints assigned to the same municipality and department are grouped here. This is a frontend demonstration; no government system is contacted.">
-          {departmentGroups.length === 0 ? <p style={ui.muted}>No visually verified incidents have a responsible department and municipality assigned yet. Open Priority ranking, visually verify each complaint, then save its responsible department and municipal authority.</p> : departmentGroups.map(group => {
+          {departmentGroups.length === 0 ? <p style={ui.muted}>No visually verified incidents have been assigned to a municipality yet. Open Priority ranking and choose a municipality and department in the Assigned Municipality column.</p> : departmentGroups.map(group => {
             const requestRecord = localDepartmentRequests[group.key];
             const pending = requestRecord ? [] : group.incidents;
             return <div key={group.key} style={{ border: "1px solid #30425f", borderRadius: 12, padding: 14, marginTop: 10 }}>
@@ -187,7 +187,7 @@ export default function RoadPriorityPage() {
                 <div><div style={{ fontWeight: 800, fontSize: 16 }}>{group.municipality}</div><div style={{ ...ui.muted, fontSize: 12 }}>{group.department} · {group.incidents.length} incident(s) · {group.incidents.reduce((n,x) => n + (x.supporting_reports || 0),0)} citizen reports</div></div>
                 <button disabled={!pending.length || false} style={{ ...ui.button, background: pending.length ? "#166534" : "#334155" }} onClick={() => sendDepartmentRequest(group)}>{pending.length ? `Prepare municipality request (${pending.length})` : "Demo request prepared"}</button>
               </div>
-              <div style={{ marginTop: 12, display: "grid", gap: 7 }}>{group.incidents.map((item,index) => <div key={item.incident_id} style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 9, alignItems: "center", background: "#091426", borderRadius: 8, padding: 10 }}><strong style={{ color: bandColor(item.priority_band) }}>#{index+1}</strong><div><div style={{ fontSize: 12, fontWeight: 700 }}>{item.location}</div><div style={{ ...ui.muted, fontSize: 11 }}>{item.incident_id} · {item.supporting_reports} report(s) · {item.priority_band} · score {item.priority_score}</div></div><div style={{ textAlign: "right", fontSize: 11, color: item.department_request ? "#86efac" : "#fbbf24" }}>{requestRecord ? `Prepared · ${requestRecord.request_id}` : "Ready to group"}</div></div>)}</div>
+              <div style={{ marginTop: 12, display: "grid", gap: 7 }}>{group.incidents.map((item,index) => <div key={item.incident_id} style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 9, alignItems: "center", background: "#091426", borderRadius: 8, padding: 10 }}><strong style={{ color: bandColor(item.priority_band) }}>#{index+1}</strong><div><div style={{ fontSize: 12, fontWeight: 700 }}>{item.location}</div><div style={{ ...ui.muted, fontSize: 11 }}>{item.incident_id} · {item.supporting_reports} report(s) · {item.priority_band} · score {item.priority_score}</div></div><div style={{ textAlign: "right", fontSize: 11, color: requestRecord ? "#86efac" : "#fbbf24" }}>{requestRecord ? `Prepared · ${requestRecord.request_id}` : "Ready to group"}</div></div>)}</div>
               {requestRecord && <div style={{ color: "#86efac", fontSize: 11, marginTop: 9 }}>Demo request: {requestRecord.request_id} · {requestRecord.created_at} · {requestRecord.status}</div>}
             </div>;
           })}
