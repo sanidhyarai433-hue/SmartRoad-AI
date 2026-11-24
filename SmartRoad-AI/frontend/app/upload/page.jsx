@@ -1,9 +1,13 @@
 "use client"
 
 import { useState } from 'react'
-import { detectPotsholesImage, detectPotsholesVideo } from '@/services/operations/demoAPI'
+import { useRouter } from "next/navigation"
+import { detectPotsholesVideo } from '@/services/operations/demoAPI'
+
+const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "");
 
 export default function UploadReportPage() {
+    const router = useRouter()
     const [file, setFile] = useState(null)
     const [preview, setPreview] = useState(null)
     const [loading, setLoading] = useState(false)
@@ -84,11 +88,27 @@ export default function UploadReportPage() {
             formData.append('description', description)
             formData.append('is_critical', isCritical ? '1' : '0')
 
-            let detector
-            if (file.type.startsWith('image/')) detector = detectPotsholesImage(formData)
-            else detector = detectPotsholesVideo(formData)
+            if (file.type.startsWith('image/')) {
+                const token = localStorage.getItem('sr_token')
+                if (!token) throw new Error('Please sign in before submitting an official road complaint.')
 
-            const response = await detector()
+                formData.append('road_name', description)
+                formData.append('location_captured_at', new Date().toISOString())
+                const response = await fetch(`${API}/complaints/submit-fast`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: formData,
+                })
+                const payload = await response.json().catch(() => ({}))
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.detail || payload.message || 'Complaint submission failed')
+                }
+                router.push(`/complaint-report/${payload.complaint_id}`)
+                return
+            }
+
+            // Video submissions keep using the existing video-analysis workflow.
+            const response = await detectPotsholesVideo(formData)()
             console.log('Detection response:', response)
             setResult(response)
         } catch (err) {
