@@ -95,8 +95,8 @@ export default function ComplaintReportPage() {
   const severity = report?.priority || (breakdown.Major ? "Major" : breakdown.Moderate ? "Moderate" : breakdown.Minor ? "Minor" : "No detected damage");
   const confidence = useMemo(() => {
     const values = detections.map(item => Number(item.confidence)).filter(Number.isFinite);
-    return values.length ? `${(values.reduce((a,b) => a+b, 0) / values.length * 100).toFixed(1)}%` : "Not Provided";
-  }, [detections]);
+    return values.length ? `${(values.reduce((a,b) => a+b, 0) / values.length * 100).toFixed(1)}%` : report?.confidence_score != null ? `${(Number(report.confidence_score) * 100).toFixed(1)}%` : "Not Provided";
+  }, [detections, report?.confidence_score]);
   const map = mapUrl(report?.lat, report?.lng);
   const originalImage = report?.image_url ? (report.image_url.startsWith("http") ? report.image_url : `${API}${report.image_url}`) : null;
   const annotatedImage = report?.image_with_detections
