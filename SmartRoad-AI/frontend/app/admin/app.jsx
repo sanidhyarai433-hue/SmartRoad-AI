@@ -168,7 +168,7 @@ function GlassCard({ children, style = {}, hover = true }) {
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "▦" },
   { id: "reports", label: "Reports", icon: "☰" },
-  { id: "priority", label: "Priority & Contractors", icon: "⚒" },
+  { id: "priority", label: "Department Actions", icon: "🏛" },
   { id: "map", label: "Map View", icon: "◉" },
   { id: "analytics", label: "Analytics", icon: "◈" },
   { id: "settings", label: "Settings", icon: "⚙" },
@@ -272,7 +272,7 @@ function Topbar({ page, darkMode, setDarkMode, backendOnline, lastUpdated, sideb
   const router = useRouter();
   const unread = NOTIFS.filter(n => !n.read).length;
 
-  const titles = { dashboard: "Dashboard Overview", reports: "Reports", priority: "Road Priority & Contractors", map: "Map View", analytics: "Analytics", settings: "Settings" };
+  const titles = { dashboard: "Dashboard Overview", reports: "Reports", priority: "Department Actions & Field Inspections", map: "Map View", analytics: "Analytics", settings: "Settings" };
 
   return (
     <div style={{
