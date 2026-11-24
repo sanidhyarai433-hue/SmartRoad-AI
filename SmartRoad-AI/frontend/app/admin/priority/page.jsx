@@ -49,6 +49,7 @@ export default function RoadPriorityPage() {
   const [forms, setForms] = useState({});
   const [expanded, setExpanded] = useState("");
   const [tab, setTab] = useState("queue");
+  const [intelligence, setIntelligence] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -60,6 +61,11 @@ export default function RoadPriorityPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (tab !== "intelligence") return;
+    request("/admin/maintenance/intelligence").then(result => setIntelligence(result.data || null)).catch(e => setError(e.message));
+  }, [tab]);
 
   const stats = useMemo(() => ({
     total: incidents.length,
@@ -132,16 +138,17 @@ export default function RoadPriorityPage() {
         <button onClick={exportReport} style={{ ...ui.button, marginLeft: "auto", background: "#14532d" }}>Export CSV report ↓</button>
       </div>
 
-      {tab === "intelligence" ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
-        {[
-          ["Most affected locations", [...new Set(incidents.map(x => x.location).filter(Boolean))].slice(0,8)],
-          ["Critical incidents", incidents.filter(x => x.priority_band === "Critical").map(x => x.location)],
-          ["Pending department referrals", incidents.filter(x => !x.referral).map(x => x.location)],
-          ["Inspection follow-up", incidents.filter(x => x.inspection?.status !== "Completed").map(x => x.location)],
-        ].map(([title,items]) => <Panel key={title} title={title}><div style={{ fontSize: 27, fontWeight: 800, marginBottom: 8 }}>{items.length}</div>{items.length ? items.map((item,i) => <div key={i} style={{ borderTop: "1px solid #263852", padding: "7px 0", fontSize: 12 }}>{item}</div>) : <span style={ui.muted}>No records in this category.</span>}</Panel>)}
-        <Panel title="Reporting note" hint="This is a live summary of the current incident queue, not an approved government budget or certified engineering assessment.">
-          <p style={{ fontSize: 12, lineHeight: 1.7, ...ui.muted }}>Use this report to identify areas needing preventive maintenance, repeated road damage, critical safety risks, and unresolved referrals. Export the CSV for monthly review and planning.</p>
-        </Panel>
+      {tab === "intelligence" ? <div>
+        {!intelligence ? <p style={ui.muted}>Loading historical maintenance intelligence…</p> : <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", gap: 10, marginBottom: 12 }}>
+            {[[ "All submitted complaints", intelligence.total_complaints ],[ "Critical / major complaints", intelligence.critical_complaints ],[ "Pending referrals", intelligence.pending_referrals ],[ "Inspections completed", intelligence.inspections_completed ],[ "Repairs verified", intelligence.repairs_verified ]].map(([label,n]) => <div key={label} style={ui.card}><div style={{ ...ui.muted, fontSize: 11 }}>{label}</div><div style={{ fontSize: 27, fontWeight: 800, marginTop: 7 }}>{n}</div></div>)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12 }}>
+            <Panel title="Most affected locations">{(intelligence.areas_by_complaints || []).map((x,i) => <div key={i} style={{ display:"flex",justifyContent:"space-between",gap:8,borderTop:"1px solid #263852",padding:"8px 0",fontSize:12 }}><span>{x.location}</span><strong>{x.reports}</strong></div>)}</Panel>
+            <Panel title="Repeated damage locations" hint="Locations with more than one submitted complaint.">{(intelligence.repeated_damage_locations || []).length ? intelligence.repeated_damage_locations.map((x,i) => <div key={i} style={{ display:"flex",justifyContent:"space-between",gap:8,borderTop:"1px solid #263852",padding:"8px 0",fontSize:12 }}><span>{x.location}</span><strong>{x.reports} reports</strong></div>) : <span style={ui.muted}>No repeated locations recorded yet.</span>}</Panel>
+          </div>
+        </>}
+        <Panel title="Reporting note" hint="Historical summary includes completed complaints.">{<p style={{ fontSize: 12, lineHeight: 1.7, ...ui.muted }}>Use this intelligence report to identify areas needing preventive maintenance, repeated road damage, critical safety risks, pending department referrals, and verified repairs. Export the queue CSV for review. Figures are based on submitted reports and are not approved government budgets or certified engineering assessments.</p>}</Panel>
       </div> : loading ? <p style={ui.muted}>Loading priority queue…</p> : incidents.length === 0 ? <Panel title="No active incidents">Submitted road-damage complaints with AI detections will appear here after they are received by the backend.</Panel> :
         <div style={{ display: "grid", gap: 12 }}>
           {incidents.map(incident => {
