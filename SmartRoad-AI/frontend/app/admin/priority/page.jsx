@@ -154,8 +154,8 @@ export default function RoadPriorityPage() {
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 22 }}>
         <div>
           <div style={{ color: "#60a5fa", fontSize: 11, fontWeight: 800, letterSpacing: 2 }}>SMARTROAD AI · GOVERNMENT ACTION DESK</div>
-          <h1 style={{ fontSize: "clamp(25px,4vw,36px)", margin: "7px 0" }}>Road Action & Inspection Centre</h1>
-          <p style={{ ...ui.muted, margin: 0, fontSize: 13 }}>Verify priority incidents, refer them to the responsible authority, and track field action.</p>
+          <h1 style={{ fontSize: "clamp(25px,4vw,36px)", margin: "7px 0" }}>Priority & Municipality Routing</h1>
+          <p style={{ ...ui.muted, margin: 0, fontSize: 13 }}>Review priority-ranked complaints and assign each road issue to its responsible municipality or department.</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <a href="/admin" style={{ color: "#b8c8df", textDecoration: "none", border: "1px solid #30425f", borderRadius: 8, padding: "10px 13px" }}>← Dashboard</a>
@@ -167,7 +167,7 @@ export default function RoadPriorityPage() {
       {notice && <div role="status" style={{ background: "#123528", border: "1px solid #24734d", color: "#bbf7d0", borderRadius: 9, padding: 12, marginBottom: 12 }}>{notice}</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 10, marginBottom: 18 }}>
-        {[["Active incidents",stats.total],["Critical priority",stats.critical],["Department referrals",stats.referrals],["Inspections requested",stats.inspections],["Open issues",stats.pending]].map(([label,n]) =>
+        {[["Active incidents",stats.total],["Critical priority",stats.critical],["Municipality assigned",Object.values(municipalAssignments).filter(x => x.municipality).length],["Inspections requested",stats.inspections],["Open issues",stats.pending]].map(([label,n]) =>
           <div key={label} style={ui.card}><div style={{ ...ui.muted, fontSize: 11 }}>{label}</div><div style={{ fontSize: 29, fontWeight: 800, marginTop: 7 }}>{n}</div></div>)}
       </div>
 
@@ -178,21 +178,21 @@ export default function RoadPriorityPage() {
       </div>
 
       {tab === "departments" ? <div style={{ display: "grid", gap: 12 }}>
-        <Panel title="Municipality-wise consolidated requests" hint="Assign each incident to its responsible municipality/department in Priority ranking. Only visually verified incidents assigned to the same office are grouped here and sorted by priority score.">
+        <Panel title="Municipality-wise consolidated requests" hint="Only visually verified complaints assigned to the same municipality and department are grouped here. This is a frontend demonstration; no government system is contacted.">
           {departmentGroups.length === 0 ? <p style={ui.muted}>No visually verified incidents have a responsible department and municipality assigned yet. Open Priority ranking, visually verify each complaint, then save its responsible department and municipal authority.</p> : departmentGroups.map(group => {
-            const pending = group.incidents.filter(item => !item.department_request);
-            const sent = group.incidents.filter(item => item.department_request);
+            const requestRecord = localDepartmentRequests[group.key];
+            const pending = requestRecord ? [] : group.incidents;
             return <div key={group.key} style={{ border: "1px solid #30425f", borderRadius: 12, padding: 14, marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <div><div style={{ fontWeight: 800, fontSize: 16 }}>{group.authority}</div><div style={{ ...ui.muted, fontSize: 12 }}>{group.department} · {group.incidents.length} incident(s) · {group.incidents.reduce((n,x) => n + (x.supporting_reports || 0),0)} citizen reports</div></div>
-                <button disabled={!pending.length || departmentBusy === group.key} style={{ ...ui.button, background: pending.length ? "#166534" : "#334155" }} onClick={() => sendDepartmentRequest(group)}>{departmentBusy === group.key ? "Preparing request…" : pending.length ? `Send consolidated request (${pending.length})` : "Request already sent"}</button>
+                <div><div style={{ fontWeight: 800, fontSize: 16 }}>{group.municipality}</div><div style={{ ...ui.muted, fontSize: 12 }}>{group.department} · {group.incidents.length} incident(s) · {group.incidents.reduce((n,x) => n + (x.supporting_reports || 0),0)} citizen reports</div></div>
+                <button disabled={!pending.length || false} style={{ ...ui.button, background: pending.length ? "#166534" : "#334155" }} onClick={() => sendDepartmentRequest(group)}>{pending.length ? `Prepare municipality request (${pending.length})` : "Demo request prepared"}</button>
               </div>
-              <div style={{ marginTop: 12, display: "grid", gap: 7 }}>{group.incidents.map((item,index) => <div key={item.incident_id} style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 9, alignItems: "center", background: "#091426", borderRadius: 8, padding: 10 }}><strong style={{ color: bandColor(item.priority_band) }}>#{index+1}</strong><div><div style={{ fontSize: 12, fontWeight: 700 }}>{item.location}</div><div style={{ ...ui.muted, fontSize: 11 }}>{item.incident_id} · {item.supporting_reports} report(s) · {item.priority_band} · score {item.priority_score}</div></div><div style={{ textAlign: "right", fontSize: 11, color: item.department_request ? "#86efac" : "#fbbf24" }}>{item.department_request ? `Sent · ${item.department_request.request_id}` : "Ready to send"}</div></div>)}</div>
-              {sent[0]?.department_request && <div style={{ color: "#86efac", fontSize: 11, marginTop: 9 }}>Latest request: {sent[0].department_request.request_id} · {sent[0].department_request.created_at} · {sent[0].department_request.status}</div>}
+              <div style={{ marginTop: 12, display: "grid", gap: 7 }}>{group.incidents.map((item,index) => <div key={item.incident_id} style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 9, alignItems: "center", background: "#091426", borderRadius: 8, padding: 10 }}><strong style={{ color: bandColor(item.priority_band) }}>#{index+1}</strong><div><div style={{ fontSize: 12, fontWeight: 700 }}>{item.location}</div><div style={{ ...ui.muted, fontSize: 11 }}>{item.incident_id} · {item.supporting_reports} report(s) · {item.priority_band} · score {item.priority_score}</div></div><div style={{ textAlign: "right", fontSize: 11, color: item.department_request ? "#86efac" : "#fbbf24" }}>{requestRecord ? `Prepared · ${requestRecord.request_id}` : "Ready to group"}</div></div>)}</div>
+              {requestRecord && <div style={{ color: "#86efac", fontSize: 11, marginTop: 9 }}>Demo request: {requestRecord.request_id} · {requestRecord.created_at} · {requestRecord.status}</div>}
             </div>;
           })}
         </Panel>
-        <p style={{ ...ui.muted, fontSize: 11 }}>Dispatch creates a consolidated request record and updates complaint tracking in SmartRoad AI. Actual delivery to a government office requires an authorized email, API or official portal integration.</p>
+        <p style={{ ...ui.muted, fontSize: 11 }}>This screen prepares a visual demo request in browser state only. It does not save to the backend or send anything to a municipality.</p>
       </div> : tab === "intelligence" ? <div>
         {!intelligence ? <p style={ui.muted}>Loading historical maintenance intelligence…</p> : <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", gap: 10, marginBottom: 12 }}>
@@ -229,8 +229,22 @@ export default function RoadPriorityPage() {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <button style={ui.button} onClick={() => setExpanded(open ? "" : id)}>{open ? "Hide action panel" : "Review complaint →"}</button>
                 {incident.admin_verified ? <span style={{ color: "#86efac", fontSize: 11, padding: 10 }}>✓ Visually verified</span> : <button disabled={saving === id} style={{ ...ui.button, background: "#166534" }} onClick={() => perform(id,"verify",{ note:"AI-generated image and detection evidence visually reviewed by admin." },`Complaint ${id} visually verified.`)}>Verify complaint</button>}
-                {incident.lat != null && incident.lng != null && <a href={`https://www.google.com/maps?q=${incident.lat},${incident.lng}`} target="_blank" rel="noreferrer" style={{ color: "#93c5fd", fontSize: 12, padding: 10 }}>Open location map ↗</a>}
-                {incident.referral?.reference_number && <span style={{ color: "#86efac", fontSize: 11 }}>Referral: {incident.referral.reference_number}</span>}
+                <div style={{ background: "#091426", border: "1px solid #30425f", borderRadius: 10, padding: 11, minWidth: 250 }}>
+                  <div style={{ color: "#93c5fd", fontSize: 10, fontWeight: 800, letterSpacing: 1, marginBottom: 7 }}>ASSIGNED MUNICIPALITY / DEPARTMENT</div>
+                  <select aria-label="Assigned municipality" style={{ ...ui.input, marginBottom: 7 }} value={municipalAssignments[id]?.municipality || ""} onChange={e => updateMunicipalAssignment(id,"municipality",e.target.value)}>
+                    <option value="">Select municipality / local body</option>
+                    {MUNICIPALITIES.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                  <select aria-label="Assigned department" style={ui.input} value={municipalAssignments[id]?.department || ""} onChange={e => updateMunicipalAssignment(id,"department",e.target.value)}>
+                    <option value="">Select responsible department</option>
+                    {DEPARTMENTS.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                  <input aria-label="Office name" style={{ ...ui.input, marginTop: 7 }} placeholder="Office / zone / ward (optional)" value={municipalAssignments[id]?.office || ""} onChange={e => updateMunicipalAssignment(id,"office",e.target.value)} />
+                  <div style={{ color: municipalAssignments[id]?.municipality && municipalAssignments[id]?.department ? "#86efac" : "#fbbf24", fontSize: 10, marginTop: 7 }}>{municipalAssignments[id]?.municipality && municipalAssignments[id]?.department ? "Authority selected · grouped in Department Requests" : "Awaiting municipality assignment"}</div>
+                </div>
+                <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+                  {incident.lat != null && incident.lng != null && <a href={`https://www.google.com/maps?q=${incident.lat},${incident.lng}`} target="_blank" rel="noreferrer" style={{ color: "#93c5fd", fontSize: 12 }}>Open location map ↗</a>}
+                </div>
               </div>
 
               {open && <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
