@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from "next/navigation"
 import { detectPotsholesVideo } from '@/services/operations/demoAPI'
 
-const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "");
+const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
 
 export default function UploadReportPage() {
     const router = useRouter()
