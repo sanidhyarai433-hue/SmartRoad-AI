@@ -1654,7 +1654,139 @@ def get_user_complaint(report_id: int, request: Request):
     report.pop("image_path", None)
     report.pop("video_path", None)
     report.pop("admin_notes", None)
+
     return {"success": True, "data": report}
+
+
+@app.get("/user/complaints/{report_id}/pdf")
+def download_user_complaint_pdf(report_id: int, request: Request):
+    """Generate and return a real PDF report for the authenticated report owner."""
+    from io import BytesIO
+    from xml.sax.saxutils import escape
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+
+    header = request.headers.get("authorization", "")
+    token = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else ""
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in to download this report.")
+    with db_engine.connect() as connection:
+        row = connection.execute(
+            select(complaints_table.c.payload).where(complaints_table.c.id == report_id)
+        ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Complaint report not found.")
+    report = dict(row[0])
+    if str(report.get("uploader_id") or "") != str(user.get("id")):
+        raise HTTPException(status_code=403, detail="You do not have access to this report.")
+
+    def safe(value, fallback="Not provided"):
+        value = fallback if value is None or str(value).strip() == "" else str(value)
+        return escape(value).replace("\\n", "<br/>")
+
+    severity = report.get("severity") or {}
+    detections = report.get("detection_details") or []
+    total = int(report.get("detections", len(detections)) or 0)
+    status = "Submitted" if str(report.get("submission_status") or "").lower() == "submitted" else "Draft — not yet submitted"
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm,
+        topMargin=17*mm, bottomMargin=17*mm,
+        title=f"SmartRoad AI Report SR-{report_id:05d}",
+        author="SmartRoad AI"
+    )
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="ReportTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=20, leading=24, textColor=colors.HexColor("#12304A"), alignment=TA_CENTER, spaceAfter=5))
+    styles.add(ParagraphStyle(name="Subtle", parent=styles["Normal"], fontSize=8, leading=11, textColor=colors.HexColor("#64748B")))
+    styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontSize=11, leading=14, textColor=colors.HexColor("#087EAE"), spaceBefore=12, spaceAfter=6))
+    styles.add(ParagraphStyle(name="BodySmall", parent=styles["BodyText"], fontSize=9, leading=13, spaceAfter=4))
+    story = [
+        Paragraph("SMARTROAD AI", styles["ReportTitle"]),
+        Paragraph("AI-ASSISTED ROAD DAMAGE INSPECTION REPORT", styles["Subtle"]),
+        Spacer(1, 8),
+        Paragraph(f"<b>Report ID:</b> SR-{report_id:05d} &nbsp;&nbsp; <b>Status:</b> {safe(status)}", styles["BodySmall"]),
+        Paragraph(f"<b>Generated:</b> {datetime.now().strftime('%d %b %Y, %I:%M %p')} &nbsp;&nbsp; <b>Created:</b> {safe(report.get('timestamp'))}", styles["BodySmall"]),
+        Paragraph("1. Report overview", styles["Section"]),
+    ]
+    overview = [
+        ["Complainant", safe(user.get("name")), "Email", safe(user.get("email"))],
+        ["Road / location", safe(report.get("road_name") or report.get("location")), "Damage type", safe(report.get("damage_type"))],
+        ["Latitude", safe(report.get("lat")), "Longitude", safe(report.get("lng"))],
+        ["Priority", safe(report.get("priority")), "Detected issues", str(total)],
+        ["Submission status", safe(status), "Submitted at", safe(report.get("submitted_at"))],
+    ]
+    overview_table = Table(overview, colWidths=[27*mm, 57*mm, 27*mm, 57*mm])
+    overview_table.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#F1F6FA")),
+        ("TEXTCOLOR",(0,0),(0,-1),colors.HexColor("#36536B")),
+        ("TEXTCOLOR",(2,0),(2,-1),colors.HexColor("#36536B")),
+        ("FONTNAME",(0,0),(-1,-1),"Helvetica"),
+        ("FONTSIZE",(0,0),(-1,-1),8),
+        ("GRID",(0,0),(-1,-1),0.35,colors.HexColor("#D5E0E8")),
+        ("VALIGN",(0,0),(-1,-1),"TOP"),
+        ("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6),
+        ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),
+    ]))
+    story.extend([overview_table, Paragraph("2. AI inspection findings", styles["Section"])])
+    summary = report.get("ai_summary") or (
+        f"The AI inspection identified {total} pothole instance(s). "
+        f"Severity distribution: {int(severity.get('Major',0) or 0)} major, "
+        f"{int(severity.get('Moderate',0) or 0)} moderate and "
+        f"{int(severity.get('Minor',0) or 0)} minor."
+    )
+    story.append(Paragraph(safe(summary), styles["BodySmall"]))
+    story.append(Paragraph(
+        f"<b>Total detections:</b> {total} &nbsp;&nbsp; "
+        f"<b>Major:</b> {int(severity.get('Major',0) or 0)} &nbsp;&nbsp; "
+        f"<b>Moderate:</b> {int(severity.get('Moderate',0) or 0)} &nbsp;&nbsp; "
+        f"<b>Minor:</b> {int(severity.get('Minor',0) or 0)}",
+        styles["BodySmall"]
+    ))
+    detection_rows = [["#", "Severity", "Confidence", "Bounding-box area", "Dimensions (px)"]]
+    for index, item in enumerate(detections, 1):
+        detection_rows.append([
+            str(index), safe(item.get("severity")), 
+            f"{float(item.get('confidence',0) or 0)*100:.1f}%",
+            f"{int(item.get('area',0) or 0)} px²",
+            f"{safe(item.get('width','—'))} × {safe(item.get('height','—'))}",
+        ])
+    if len(detection_rows) == 1:
+        detection_rows.append(["—", "No potholes detected", "—", "—", "—"])
+    detection_table = Table(detection_rows, repeatRows=1, colWidths=[12*mm, 32*mm, 30*mm, 40*mm, 54*mm])
+    detection_table.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#12304A")),
+        ("TEXTCOLOR",(0,0),(-1,0),colors.white),
+        ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#F3F7FA")]),
+        ("GRID",(0,0),(-1,-1),0.35,colors.HexColor("#D5E0E8")),
+        ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
+        ("FONTSIZE",(0,0),(-1,-1),8),
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),
+    ]))
+    story.extend([detection_table, Paragraph("3. Citizen description", styles["Section"]), Paragraph(safe(report.get("description")), styles["BodySmall"])])
+    story.extend([
+        Paragraph("4. Evidence and location", styles["Section"]),
+        Paragraph(f"<b>Original evidence:</b> {safe(report.get('original_file_name'))}", styles["BodySmall"]),
+        Paragraph(f"<b>Location capture:</b> {safe(report.get('location_resolution'))}", styles["BodySmall"]),
+        Paragraph(f"<b>Evidence attachments:</b> {len(report.get('attachments') or [])}", styles["BodySmall"]),
+        Paragraph("5. Assessment notes", styles["Section"]),
+        Paragraph("This document records the AI model's output and the information supplied by the citizen. Severity is an automated preliminary assessment and must be verified by the responsible road authority through physical inspection. Pixel-area estimates are not a substitute for measured pothole depth or dimensions.", styles["BodySmall"]),
+        Spacer(1, 10),
+        Paragraph("Generated by SmartRoad AI · This report is system-generated and has not been independently certified.", styles["Subtle"]),
+    ])
+    doc.build(story)
+    buffer.seek(0)
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="SmartRoad-AI-Report-SR-{report_id:05d}.pdf"'}
+    )
 
 
 @app.patch("/user/complaints/{report_id}/draft")
