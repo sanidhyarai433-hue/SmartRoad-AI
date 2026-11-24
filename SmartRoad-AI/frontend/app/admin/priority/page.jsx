@@ -50,6 +50,7 @@ export default function RoadPriorityPage() {
   const [expanded, setExpanded] = useState("");
   const [tab, setTab] = useState("queue");
   const [intelligence, setIntelligence] = useState(null);
+  const [departmentBusy, setDepartmentBusy] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -74,6 +75,31 @@ export default function RoadPriorityPage() {
     inspections: incidents.filter(x => x.inspection?.status === "Requested" || x.status === "Inspection Requested").length,
     pending: incidents.filter(x => !["Completed", "Closed", "False Image/Rejected"].includes(x.status)).length,
   }), [incidents]);
+
+  const departmentGroups = useMemo(() => {
+    const groups = new Map();
+    incidents.forEach(item => {
+      const department = String(item.department || "").trim();
+      const authority = String(item.authority || "").trim();
+      if (!department || department === "Unassigned" || !authority || authority === "Unassigned") return;
+      const key = `${department.toLowerCase()}|${authority.toLowerCase()}`;
+      if (!groups.has(key)) groups.set(key, { key, department, authority, incidents: [] });
+      groups.get(key).incidents.push(item);
+    });
+    return [...groups.values()].map(group => ({ ...group, incidents: group.incidents.sort((a,b) => (b.priority_score || 0) - (a.priority_score || 0)) }));
+  }, [incidents]);
+
+  async function sendDepartmentRequest(group) {
+    const pending = group.incidents.filter(item => !item.department_request);
+    if (!pending.length) return;
+    setDepartmentBusy(group.key); setError(""); setNotice("");
+    try {
+      const result = await request("/admin/department-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ incident_ids: pending.map(item => item.incident_id), note: "Consolidated priority-ranked road damage complaints for municipal review and necessary action." }) });
+      setNotice(`Request ${result.data.request_id} created for ${group.authority}, covering ${result.data.incident_count} incidents and ${result.data.complaint_count} citizen complaints.`);
+      await load();
+    } catch (e) { setError(e.message); }
+    finally { setDepartmentBusy(""); }
+  }
 
   const value = (id, key, fallback = "") => forms[id]?.[key] ?? fallback;
   const setValue = (id, key, val) => setForms(old => ({ ...old, [id]: { ...old[id], [key]: val } }));
@@ -133,12 +159,28 @@ export default function RoadPriorityPage() {
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {[["queue","Priority & actions"],["intelligence","Maintenance intelligence"]].map(([id,label]) =>
+        {[["queue","Priority ranking"],["departments","Department requests"],["intelligence","Maintenance intelligence"]].map(([id,label]) =>
           <button key={id} onClick={() => setTab(id)} style={{ ...ui.button, background: tab === id ? "#2563eb" : "#17243a", border: "1px solid #30425f" }}>{label}</button>)}
         <button onClick={exportReport} style={{ ...ui.button, marginLeft: "auto", background: "#14532d" }}>Export CSV report ↓</button>
       </div>
 
-      {tab === "intelligence" ? <div>
+      {tab === "departments" ? <div style={{ display: "grid", gap: 12 }}>
+        <Panel title="Municipality-wise consolidated requests" hint="Assign each incident to its responsible municipality/department in Priority ranking. Incidents assigned to the same office are grouped here and sorted by priority score.">
+          {departmentGroups.length === 0 ? <p style={ui.muted}>No incidents have a responsible department and municipality assigned yet. Open Priority ranking, review an incident, and save its department and municipal authority first.</p> : departmentGroups.map(group => {
+            const pending = group.incidents.filter(item => !item.department_request);
+            const sent = group.incidents.filter(item => item.department_request);
+            return <div key={group.key} style={{ border: "1px solid #30425f", borderRadius: 12, padding: 14, marginTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div><div style={{ fontWeight: 800, fontSize: 16 }}>{group.authority}</div><div style={{ ...ui.muted, fontSize: 12 }}>{group.department} · {group.incidents.length} incident(s) · {group.incidents.reduce((n,x) => n + (x.supporting_reports || 0),0)} citizen reports</div></div>
+                <button disabled={!pending.length || departmentBusy === group.key} style={{ ...ui.button, background: pending.length ? "#166534" : "#334155" }} onClick={() => sendDepartmentRequest(group)}>{departmentBusy === group.key ? "Preparing request…" : pending.length ? `Send consolidated request (${pending.length})` : "Request already sent"}</button>
+              </div>
+              <div style={{ marginTop: 12, display: "grid", gap: 7 }}>{group.incidents.map((item,index) => <div key={item.incident_id} style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 9, alignItems: "center", background: "#091426", borderRadius: 8, padding: 10 }}><strong style={{ color: bandColor(item.priority_band) }}>#{index+1}</strong><div><div style={{ fontSize: 12, fontWeight: 700 }}>{item.location}</div><div style={{ ...ui.muted, fontSize: 11 }}>{item.incident_id} · {item.supporting_reports} report(s) · {item.priority_band} · score {item.priority_score}</div></div><div style={{ textAlign: "right", fontSize: 11, color: item.department_request ? "#86efac" : "#fbbf24" }}>{item.department_request ? `Sent · ${item.department_request.request_id}` : "Ready to send"}</div></div>)}</div>
+              {sent[0]?.department_request && <div style={{ color: "#86efac", fontSize: 11, marginTop: 9 }}>Latest request: {sent[0].department_request.request_id} · {sent[0].department_request.created_at} · {sent[0].department_request.status}</div>}
+            </div>;
+          })}
+        </Panel>
+        <p style={{ ...ui.muted, fontSize: 11 }}>Dispatch creates a consolidated request record and updates complaint tracking in SmartRoad AI. Actual delivery to a government office requires an authorized email, API or official portal integration.</p>
+      </div> : tab === "intelligence" ? <div>
         {!intelligence ? <p style={ui.muted}>Loading historical maintenance intelligence…</p> : <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", gap: 10, marginBottom: 12 }}>
             {[[ "All submitted complaints", intelligence.total_complaints ],[ "Critical / major complaints", intelligence.critical_complaints ],[ "Pending referrals", intelligence.pending_referrals ],[ "Inspections completed", intelligence.inspections_completed ],[ "Repairs verified", intelligence.repairs_verified ]].map(([label,n]) => <div key={label} style={ui.card}><div style={{ ...ui.muted, fontSize: 11 }}>{label}</div><div style={{ fontSize: 27, fontWeight: 800, marginTop: 7 }}>{n}</div></div>)}
@@ -178,14 +220,14 @@ export default function RoadPriorityPage() {
               </div>
 
               {open && <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
-                <Panel title="1 · Department referral" hint="Select the authority responsible for this road. The prototype records a referral and creates a reference number; it does not submit directly to a government portal.">
+                <Panel title="1 · Assign responsible municipality / department" hint="Enter the actual municipality, corporation, panchayat or PWD office responsible for this road. Incidents assigned to the same office will be grouped into one request.">
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 }}>
                     <div><label style={ui.label}>Responsible department</label><select style={ui.input} value={value(id,"department",incident.department && incident.department !== "Unassigned" ? incident.department : DEPARTMENTS[0])} onChange={e => setValue(id,"department",e.target.value)}>{DEPARTMENTS.map(x => <option key={x}>{x}</option>)}</select></div>
                     <div><label style={ui.label}>Office / authority name</label><input style={ui.input} value={value(id,"authority",incident.authority === "Unassigned" ? "" : incident.authority)} onChange={e => setValue(id,"authority",e.target.value)} placeholder="e.g. Assistant Executive Engineer" /></div>
                     <div><label style={ui.label}>Referral note</label><input style={ui.input} value={value(id,"referral_note","")} onChange={e => setValue(id,"referral_note",e.target.value)} placeholder="Reason for forwarding" /></div>
                   </div>
-                  <button disabled={saving === id} style={{ ...ui.button, marginTop: 10 }} onClick={() => perform(id,"refer",{ department:value(id,"department",DEPARTMENTS[0]), authority:value(id,"authority",""), note:value(id,"referral_note","") },`Referral recorded for ${id}.`)}>Generate referral & reference number</button>
-                  {incident.referral && <div style={{ color: "#86efac", fontSize: 12, marginBottom: 0 }}>Ref: {incident.referral.reference_number} · {incident.referral.department} · {incident.referral.created_at} · <a href={`${API}/admin/priority/incidents/${id}/referral.pdf`} target="_blank" rel="noreferrer" style={{ color: "#93c5fd" }}>Download referral memo ↗</a></div>}
+                  <button disabled={saving === id} style={{ ...ui.button, marginTop: 10 }} onClick={() => perform(id,"triage",{ department:value(id,"department",DEPARTMENTS[0]), authority:value(id,"authority",""), municipality:value(id,"authority",""), note:value(id,"referral_note","") },`Responsible department saved for ${id}.`)}>Save responsible authority</button>
+                  {incident.department_request && <div style={{ color: "#86efac", fontSize: 12 }}>Included in department request {incident.department_request.request_id}</div>}
                 </Panel>
 
                 <Panel title="2 · Physical inspection" hint="Request an authorized field officer to verify the road condition before maintenance decisions.">
