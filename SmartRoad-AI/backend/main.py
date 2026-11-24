@@ -2106,6 +2106,12 @@ def _build_priority_incidents():
             "assignment": assignment,
             "sla": sla,
             "contractor_work": first.get("contractor_work") or {},
+            "referral": first.get("referral"),
+            "inspection": first.get("inspection"),
+            "repair_evidence": first.get("repair_evidence") or [],
+            "maintenance_recommendation": {
+                "action": "Technical inspection and detailed repair assessment" if max((_report_severity(r) for r in items), key=lambda s: {"Minor": 1, "Moderate": 2, "Major": 3}.get(s, 0)) == "Major" else "Detailed inspection and patch repair assessment" if max((_report_severity(r) for r in items), key=lambda s: {"Minor": 1, "Moderate": 2, "Major": 3}.get(s, 0)) == "Moderate" else "Routine patch repair assessment"
+            },
             "reports": items,
         })
     incidents.sort(key=lambda item: item["priority_score"], reverse=True)
