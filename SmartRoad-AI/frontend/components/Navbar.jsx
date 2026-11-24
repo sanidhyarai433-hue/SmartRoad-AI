@@ -108,6 +108,12 @@ function Navbar() {
               }}>Home</button>
             </li>
 
+            {/* Dashboard */}
+            <li><button onClick={() => scrollTo('dashboard')} className="nav-btn-link">Dashboard</button></li>
+
+            {/* My Reports */}
+            <li><a href="/my-reports" className="nav-btn-link" onClick={() => setMenuOpen(false)}>My Reports</a></li>
+
             {/* Installation */}
             <li><a href="/deployment" className="nav-btn-link" target="_blank" rel="noopener noreferrer">Installation</a></li>
 
