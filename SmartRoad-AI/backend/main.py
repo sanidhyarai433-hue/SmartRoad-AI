@@ -1605,6 +1605,37 @@ def auth_me(request: Request):
 
 
 
+@app.get("/user/reports")
+def get_user_reports(request: Request):
+    """Return all reports owned by the citizen, including unsubmitted AI drafts."""
+    header = request.headers.get("authorization", "")
+    token = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else ""
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in to view your reports.")
+
+    with db_engine.connect() as connection:
+        rows = connection.execute(
+            select(complaints_table.c.payload)
+            .where(complaints_table.c.uploader_id == str(user.get("id")))
+            .order_by(complaints_table.c.id.desc())
+        ).scalars().all()
+
+    reports = []
+    for stored in rows:
+        item = dict(stored)
+        item.pop("image_path", None)
+        item.pop("video_path", None)
+        item.pop("admin_notes", None)
+        item.pop("image_with_detections", None)
+        item.pop("detection_details", None)
+        item.pop("previews", None)
+        item.pop("attachments", None)
+        reports.append(item)
+    reports.sort(key=lambda item: item.get("timestamp") or item.get("created_at") or "", reverse=True)
+    return {"success": True, "data": reports, "count": len(reports)}
+
+
 @app.get("/user/complaints/{report_id}")
 def get_user_complaint(report_id: int, request: Request):
     """Return a complaint/draft only to the citizen who owns it."""
