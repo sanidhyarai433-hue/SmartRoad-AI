@@ -819,6 +819,7 @@ async def submit_fast_complaint(
     longitude: str = Form(None),
     description: str = Form(None),
     road_name: str = Form(None),
+    location_captured_at: str = Form(None),
     is_critical: str = Form("0"),
     request: Request = None,
 ):
@@ -868,7 +869,7 @@ async def submit_fast_complaint(
         "location": location,
         "road_name": (road_name or "").strip() or None,
         "description": (description or "").strip()[:2000],
-        "location_captured_at": now,
+        "location_captured_at": location_captured_at or now,
         "location_resolution": "GPS supplied" if lat is not None else "GPS unavailable; manual review required",
         "lat": lat,
         "lng": lng,
