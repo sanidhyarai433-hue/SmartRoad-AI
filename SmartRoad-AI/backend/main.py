@@ -2217,6 +2217,141 @@ def triage_priority_incident(incident_id: str, payload: dict = Body(...)):
     return {"success": True, "message": "Municipal triage saved", "data": {"incident_id": incident_id, "updated_reports": updated, "department": department, "authority": authority}}
 
 
+
+@app.post("/admin/priority/incidents/{incident_id}/refer")
+def refer_priority_incident(incident_id: str, payload: dict = Body(...)):
+    """Record a department referral and reference number for every report in a grouped incident."""
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found; refresh the priority queue")
+    department = str(payload.get("department") or "").strip()
+    authority = str(payload.get("authority") or "").strip()
+    note = str(payload.get("note") or "").strip()
+    if not department or not authority:
+        raise HTTPException(status_code=400, detail="Select a department and enter the responsible office.")
+    timestamp = datetime.now().isoformat()
+    referral = {
+        "reference_number": "SR-REF-" + datetime.now().strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6].upper(),
+        "department": department, "authority": authority, "note": note,
+        "created_at": timestamp, "status": "Forwarded (prototype record)",
+    }
+    for report_id in incident["report_ids"]:
+        stored = next((r for r in load_persisted_reports() if str(r.get("id")) == str(report_id)), {})
+        history = list(stored.get("authority_workflow") or [])
+        history.append({"action": "department_referral_recorded", "actor": "Municipal admin", "timestamp": timestamp, "details": referral})
+        update_persisted_report(int(report_id), {
+            "department": department, "authority": authority, "referral": referral,
+            "status": "Forwarded to Department", "authority_workflow": history,
+        })
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Department referral recorded", "data": referral}
+
+
+@app.post("/admin/priority/incidents/{incident_id}/inspection")
+def request_priority_inspection(incident_id: str, payload: dict = Body(...)):
+    """Create a field inspection request for an incident."""
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found; refresh the priority queue")
+    officer = str(payload.get("officer") or "Field Inspection Team").strip()
+    note = str(payload.get("note") or "Verify road damage and safety risk").strip()
+    timestamp = datetime.now().isoformat()
+    inspection = {"inspection_id": "INSP-" + uuid.uuid4().hex[:8].upper(), "officer": officer, "note": note, "status": "Requested", "requested_at": timestamp}
+    for report_id in incident["report_ids"]:
+        stored = next((r for r in load_persisted_reports() if str(r.get("id")) == str(report_id)), {})
+        history = list(stored.get("authority_workflow") or [])
+        history.append({"action": "field_inspection_requested", "actor": "Municipal admin", "timestamp": timestamp, "details": inspection})
+        update_persisted_report(int(report_id), {"inspection": inspection, "status": "Inspection Requested", "authority_workflow": history})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Inspection request created", "data": inspection}
+
+
+@app.post("/admin/priority/incidents/{incident_id}/inspection-result")
+def save_priority_inspection_result(incident_id: str, payload: dict = Body(...)):
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    observation = str(payload.get("observation") or "").strip()
+    if len(observation) < 8:
+        raise HTTPException(status_code=400, detail="Enter a meaningful field observation (at least 8 characters).")
+    timestamp = datetime.now().isoformat()
+    for report_id in incident["report_ids"]:
+        stored = next((r for r in load_persisted_reports() if str(r.get("id")) == str(report_id)), {})
+        inspection = dict(stored.get("inspection") or {})
+        inspection.update({"observation": observation, "status": "Completed", "completed_at": timestamp})
+        history = list(stored.get("authority_workflow") or [])
+        history.append({"action": "field_inspection_completed", "actor": "Field inspection team", "timestamp": timestamp, "details": {"observation": observation}})
+        update_persisted_report(int(report_id), {"inspection": inspection, "status": "Under Review", "authority_workflow": history})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Inspection observations saved"}
+
+
+@app.post("/admin/priority/incidents/{incident_id}/repair-evidence")
+async def upload_priority_repair_evidence(incident_id: str, file: UploadFile = File(...)):
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    content = await file.read()
+    if not content or len(content) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Upload an image smaller than 12 MB")
+    content_type = (file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image evidence is accepted")
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+        extension = ".jpg" if "jpeg" in content_type else ".png" if "png" in content_type else ".webp"
+    evidence_dir = os.path.join(RESULTS_DIR, "admin_repair_evidence")
+    os.makedirs(evidence_dir, exist_ok=True)
+    filename = f"{incident_id}_{uuid.uuid4().hex}{extension}"
+    with open(os.path.join(evidence_dir, filename), "wb") as output:
+        output.write(content)
+    evidence = {"url": f"/results/admin_repair_evidence/{filename}", "filename": filename, "uploaded_at": datetime.now().isoformat(), "uploaded_by": "Municipal admin"}
+    for report_id in incident["report_ids"]:
+        stored = next((r for r in load_persisted_reports() if str(r.get("id")) == str(report_id)), {})
+        items = list(stored.get("repair_evidence") or [])
+        items.append(evidence)
+        update_persisted_report(int(report_id), {"repair_evidence": items})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Repair evidence uploaded", "data": evidence}
+
+
+@app.post("/admin/priority/incidents/{incident_id}/close")
+def close_priority_incident(incident_id: str, payload: dict = Body(...)):
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    evidence = []
+    for report in incident.get("reports") or []:
+        evidence.extend(report.get("repair_evidence") or [])
+    if not evidence:
+        raise HTTPException(status_code=400, detail="Upload repair evidence before closing this incident.")
+    note = str(payload.get("note") or "Repair evidence reviewed by admin").strip()
+    timestamp = datetime.now().isoformat()
+    for report_id in incident["report_ids"]:
+        stored = next((r for r in load_persisted_reports() if str(r.get("id")) == str(report_id)), {})
+        history = list(stored.get("authority_workflow") or [])
+        history.append({"action": "repair_evidence_verified", "actor": "Municipal admin", "timestamp": timestamp, "details": {"note": note, "evidence_count": len(evidence)}})
+        update_persisted_report(int(report_id), {"status": "Completed", "progress": 100, "closure_note": note, "closed_at": timestamp, "authority_workflow": history})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Incident closed after evidence review"}
+
+
+@app.post("/admin/priority/incidents/{incident_id}/reopen")
+def reopen_priority_incident(incident_id: str, payload: dict = Body(...)):
+    incident = next((item for item in _build_priority_incidents() if item["incident_id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    note = str(payload.get("note") or "Further work required").strip()
+    timestamp = datetime.now().isoformat()
+    for report_id in incident["report_ids"]:
+        stored = next((r for r in load_persisted_reports() if str(r.get("id")) == str(report_id)), {})
+        history = list(stored.get("authority_workflow") or [])
+        history.append({"action": "repair_reopened", "actor": "Municipal admin", "timestamp": timestamp, "details": {"note": note}})
+        update_persisted_report(int(report_id), {"status": "In Review", "progress": 25, "closure_note": note, "authority_workflow": history})
+    dashboard_data["reports"] = load_persisted_reports()
+    return {"success": True, "message": "Incident reopened"}
+
+
 @app.post("/admin/priority/incidents/{incident_id}/assign")
 def assign_incident_contractor(incident_id: str, payload: dict = Body(...)):
     contractor_id = str(payload.get("contractor_id") or "").strip()
