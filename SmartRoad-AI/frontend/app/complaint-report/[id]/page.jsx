@@ -56,6 +56,16 @@ export default function ComplaintReportPage() {
     return () => { active = false; };
   }, [load]);
 
+  // Poll only while the background model is working; stop as soon as it finishes.
+  useEffect(() => {
+    const state = String(report?.ai_status || "").toLowerCase();
+    if (state !== "queued" && state !== "processing") return;
+    const timer = setInterval(() => {
+      load().catch(err => setError(err.message));
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [report?.ai_status, load]);
+
   // Reverse-geocode only the coordinates saved on this complaint. Never use
   // the viewer's current device location when opening an older report.
   useEffect(() => {
@@ -85,8 +95,8 @@ export default function ComplaintReportPage() {
   const severity = report?.priority || (breakdown.Major ? "Major" : breakdown.Moderate ? "Moderate" : breakdown.Minor ? "Minor" : "No detected damage");
   const confidence = useMemo(() => {
     const values = detections.map(item => Number(item.confidence)).filter(Number.isFinite);
-    return values.length ? `${(values.reduce((a,b) => a+b, 0) / values.length * 100).toFixed(1)}%` : "Not Provided";
-  }, [detections]);
+    return values.length ? `${(values.reduce((a,b) => a+b, 0) / values.length * 100).toFixed(1)}%` : report?.confidence_score != null ? `${(Number(report.confidence_score) * 100).toFixed(1)}%` : "Not Provided";
+  }, [detections, report?.confidence_score]);
   const map = mapUrl(report?.lat, report?.lng);
   const originalImage = report?.image_url ? (report.image_url.startsWith("http") ? report.image_url : `${API}${report.image_url}`) : null;
   const annotatedImage = report?.image_with_detections
@@ -211,6 +221,17 @@ export default function ComplaintReportPage() {
 
       {error && <div style={{ ...styles.panel, borderColor: "#ef4444", color: "#fecaca", marginBottom: 14 }}>{error}</div>}
       {notice && <div style={{ ...styles.panel, borderColor: "#10b981", color: "#a7f3d0", marginBottom: 14 }}>{notice}</div>}
+      {report.ai_status === "queued" || report.ai_status === "processing" ? (
+        <div style={{ ...styles.panel, borderColor: "rgba(56,189,248,.45)", marginBottom: 14 }}>
+          <strong style={{ color: "#7dd3fc" }}>AI image analysis is processing</strong>
+          <p style={{ ...styles.muted, margin: "6px 0 0" }}>Your complaint is already registered and visible to the administration. This report will refresh automatically when YOLO finishes analysing the image.</p>
+        </div>
+      ) : report.ai_status === "failed" ? (
+        <div style={{ ...styles.panel, borderColor: "rgba(248,113,113,.45)", marginBottom: 14 }}>
+          <strong style={{ color: "#fca5a5" }}>AI analysis needs manual review</strong>
+          <p style={{ ...styles.muted, margin: "6px 0 0" }}>{report.ai_error || "Your complaint is safely submitted. The department can review the original evidence manually."}</p>
+        </div>
+      ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", gap: 14 }}>
         <section style={styles.panel}>
@@ -228,6 +249,8 @@ export default function ComplaintReportPage() {
         <section style={styles.panel}>
           {sectionTitle("02 · AI road damage inspection")}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 14 }}>
+            {field("AI analysis status", report.ai_status || "Completed")}
+            {field("Road condition", report.road_condition || "Not assessed")}
             {field("Damage type", report.damage_type || (total ? "Pothole" : "No damage detected"))}
             {field("Potholes detected", total)}
             {field("Total damage instances", total)}
@@ -237,7 +260,7 @@ export default function ComplaintReportPage() {
           </div>
           <div style={{ marginTop: 16, padding: 13, borderRadius: 10, background: "rgba(8,126,174,.12)" }}>
             <div style={styles.label}>Detection summary</div>
-            <p style={styles.value}>{total > 0 ? `The model identified ${total} pothole instance(s): ${Number(breakdown.Major || 0)} Major, ${Number(breakdown.Moderate || 0)} Moderate and ${Number(breakdown.Minor || 0)} Minor, based on the model's bounding-box area heuristic.` : "The model did not detect potholes in this image. A citizen may still submit the report for manual review."}</p>
+            <p style={styles.value}>{report.ai_status === "queued" || report.ai_status === "processing" ? "The image has been received. YOLO analysis is running in the background; this report refreshes automatically." : total > 0 ? `The model identified ${total} pothole instance(s): ${Number(breakdown.Major || 0)} Major, ${Number(breakdown.Moderate || 0)} Moderate and ${Number(breakdown.Minor || 0)} Minor, based on the model's bounding-box area heuristic.` : report.ai_status === "failed" ? "AI analysis did not complete. The original evidence is retained for manual inspection." : "The model did not detect potholes in this image. A citizen may still submit the report for manual review."}</p>
           </div>
           <div style={{ marginTop: 16 }}>
             {sectionTitle("Individual detections")}

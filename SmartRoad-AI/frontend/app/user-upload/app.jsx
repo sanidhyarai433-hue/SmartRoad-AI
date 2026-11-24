@@ -528,13 +528,13 @@ export default function SmartRoadReport() {
 
   const submit = async () => {
     if (!canSubmit || requestLock.current) return;
-    if (!localStorage.getItem("sr_token")) { setError("Please sign in before running AI detection so the draft report can be linked to your account."); return; }
+    if (!localStorage.getItem("sr_token")) { setError("Please sign in before submitting an official road complaint."); return; }
     requestLock.current = true;
     setSubmitting(true); setError("");
     setSteps([
       { id: "upload", label: isVideo ? "Uploading video" : "Uploading image", status: "in-progress" },
-      { id: "analyze", label: isVideo ? "Analyzing road video" : "Analyzing road surface", status: "pending" },
-      { id: "detect", label: "Detecting potholes and damage", status: "pending" },
+      { id: "analyze", label: isVideo ? "Analyzing road video" : "Registering complaint", status: "pending" },
+      { id: "detect", label: isVideo ? "Detecting potholes and damage" : "AI analysis will continue in background", status: "pending" },
       { id: "severity", label: "Calculating severity", status: "pending" },
       { id: "results", label: "Generating results", status: "pending" },
     ]);
@@ -553,7 +553,7 @@ export default function SmartRoadReport() {
     try {
       const data = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", `${backendBase}${isVideo ? "/detect/video" : "/detect/image"}`);
+        xhr.open("POST", `${backendBase}${isVideo ? "/detect/video" : "/complaints/submit-fast"}`);
         xhr.timeout = 90000;
         if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
         xhr.upload.onload = () => setSteps(current => current.map(step => step.id === "upload" ? { ...step, status: "done" } : step.id === "analyze" ? { ...step, status: "in-progress" } : step));
@@ -568,6 +568,12 @@ export default function SmartRoadReport() {
         xhr.onabort = () => reject(new Error("AI inspection was cancelled."));
         xhr.send(fd);
       });
+      if (!isVideo && data.complaint_id) {
+        // The complaint is already registered; YOLO continues on the backend.
+        setSteps(current => current.map(step => ({ ...step, status: step.id === "detect" ? "in-progress" : "done" })));
+        router.push(`/complaint-report/${data.complaint_id}`);
+        return;
+      }
       setSteps(current => current.map(step => ["analyze", "detect", "severity"].includes(step.id) ? { ...step, status: "done" } : step.id === "results" ? { ...step, status: "in-progress" } : step));
       const detectionRows = Array.isArray(data.detections) ? data.detections : [];
       const severityBreakdown = data.statistics?.severity_breakdown || {
@@ -607,7 +613,7 @@ export default function SmartRoadReport() {
 
   /* Submit button inner */
   const BtnInner = () => {
-    if (submitting) return <>{I.spinner(18)} {isVideo ? "Processing Video…" : "Analysing Image…"}</>;
+    if (submitting) return <>{I.spinner(18)} {isVideo ? "Processing Video…" : "Submitting Complaint…"}</>;
     const hints = [];
     if (!file)     hints.push("upload file");
     if (!location) hints.push("set location");
