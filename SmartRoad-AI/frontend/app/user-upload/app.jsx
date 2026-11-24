@@ -494,6 +494,63 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
         <p style={{ color:"#94a3b8", fontSize:".825rem", paddingTop:".7rem", borderTop:"1px solid rgba(71,100,132,.2)" }}>{priority}</p>
       </div>
 
+      {/* Citizen-readable report shown directly beneath AI Detection Results */}
+      {result.complaint?.id && (() => {
+        const report = result.report || {};
+        const reportRows = [
+          ["Report ID", `SR-${String(result.complaint.id).padStart(5, "0")}`],
+          ["Complainant", report.uploader_name || "Signed-in citizen"],
+          ["Email", report.uploader_email || "Not available"],
+          ["Phone", report.uploader_phone || "Not provided"],
+          ["Road / area", report.road_name || report.location || location?.road || "Not provided"],
+          ["GPS coordinates", location ? `${Number(location.lat).toFixed(6)}, ${Number(location.lng).toFixed(6)}` : "Not provided"],
+          ["Reported on", new Date(report.timestamp || result.timestamp || Date.now()).toLocaleString()],
+          ["Damage type", report.damage_type || (Number(result.total_detections) ? "Pothole" : "No damage detected")],
+          ["Overall severity", result.severity || report.priority || "Not assessed"],
+          ["Potholes detected", String(result.total_detections ?? 0)],
+          ["Submission status", "Draft — awaiting your confirmation"],
+        ];
+        const rows = Array.isArray(result.detections) ? result.detections : [];
+        return (
+          <section className="sr-inline-report" style={{ background:"rgba(8,25,48,.92)", border:"1px solid rgba(34,211,238,.35)", borderRadius:"1rem", padding:"1.2rem", display:"flex", flexDirection:"column", gap:"1rem" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:".75rem", flexWrap:"wrap" }}>
+              <div>
+                <p style={{ color:"#67e8f9", fontSize:".65rem", fontWeight:800, letterSpacing:".12em", textTransform:"uppercase" }}>Your generated report</p>
+                <h3 style={{ color:"#f8fafc", fontSize:"1.2rem", fontWeight:800, marginTop:".25rem" }}>Road Condition Report · SR-{String(result.complaint.id).padStart(5, "0")}</h3>
+                <p style={{ color:"#94a3b8", fontSize:".75rem", marginTop:".3rem" }}>Generated from this AI inspection. Review the details before submitting your complaint.</p>
+              </div>
+              <span style={{ padding:".35rem .65rem", borderRadius:999, background:"rgba(245,158,11,.12)", color:"#fbbf24", fontSize:".68rem", fontWeight:800 }}>DRAFT</span>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:".85rem" }}>
+              {reportRows.map(([label,value]) => (
+                <div key={label} style={{ minWidth:0, padding:".7rem", borderRadius:".65rem", background:"rgba(15,39,67,.8)", border:"1px solid rgba(148,163,184,.12)" }}>
+                  <p style={{ color:"#67e8f9", fontSize:".62rem", fontWeight:800, letterSpacing:".08em", textTransform:"uppercase", marginBottom:".3rem" }}>{label}</p>
+                  <p style={{ color:"#e2e8f0", fontSize:".82rem", overflowWrap:"anywhere", lineHeight:1.45 }}>{value}</p>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding:".85rem", borderRadius:".7rem", background:"rgba(15,39,67,.8)" }}>
+              <p style={{ color:"#67e8f9", fontSize:".62rem", fontWeight:800, letterSpacing:".08em", textTransform:"uppercase", marginBottom:".4rem" }}>AI inspection summary</p>
+              <p style={{ color:"#e2e8f0", fontSize:".82rem", lineHeight:1.6 }}>{report.ai_summary || `The AI model detected ${result.total_detections ?? 0} pothole(s). Severity is estimated from the detected bounding-box area and is not a physical depth measurement.`}</p>
+              {rows.length > 0 && (
+                <div style={{ marginTop:".75rem", display:"grid", gap:".4rem" }}>
+                  {rows.map((item,index) => (
+                    <p key={index} style={{ color:"#cbd5e1", fontSize:".78rem" }}>
+                      <strong>Pothole {index+1}:</strong> {item.severity || "Unclassified"} · Confidence {Number.isFinite(Number(item.confidence)) ? `${(Number(item.confidence)*100).toFixed(1)}%` : "Not available"} · Bounding box {Array.isArray(item.bbox) ? item.bbox.join(", ") : "Not available"}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="sr-report-actions" style={{ display:"flex", gap:".65rem", flexWrap:"wrap" }}>
+              <button className="btn-grad" type="button" onClick={() => window.print()}>⬇ Download Report PDF</button>
+              <button className="btn-ghost" type="button" onClick={() => onConfirm()}>Open Full Report →</button>
+            </div>
+            <p style={{ color:"#94a3b8", fontSize:".68rem", lineHeight:1.5 }}>PDF tip: choose “Save as PDF” in the print dialog. This is a draft report, not proof that the complaint has been officially submitted.</p>
+          </section>
+        );
+      })()}
+
       <div style={{ display:"flex", gap:".75rem", flexWrap:"wrap" }}>
         {result.complaint?.id && (
           <button
