@@ -248,14 +248,8 @@ export default function RoadPriorityPage() {
               </div>
 
               {open && <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
-                <Panel title="1 · Assign responsible municipality / department" hint="Enter the actual municipality, corporation, panchayat or PWD office responsible for this road. Incidents assigned to the same office will be grouped into one request.">
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 }}>
-                    <div><label style={ui.label}>Responsible department</label><select style={ui.input} value={value(id,"department",incident.department && incident.department !== "Unassigned" ? incident.department : DEPARTMENTS[0])} onChange={e => setValue(id,"department",e.target.value)}>{DEPARTMENTS.map(x => <option key={x}>{x}</option>)}</select></div>
-                    <div><label style={ui.label}>Office / authority name</label><input style={ui.input} value={value(id,"authority",incident.authority === "Unassigned" ? "" : incident.authority)} onChange={e => setValue(id,"authority",e.target.value)} placeholder="e.g. Assistant Executive Engineer" /></div>
-                    <div><label style={ui.label}>Referral note</label><input style={ui.input} value={value(id,"referral_note","")} onChange={e => setValue(id,"referral_note",e.target.value)} placeholder="Reason for forwarding" /></div>
-                  </div>
-                  <button disabled={saving === id} style={{ ...ui.button, marginTop: 10 }} onClick={() => perform(id,"triage",{ department:value(id,"department",DEPARTMENTS[0]), authority:value(id,"authority",""), municipality:value(id,"authority",""), note:value(id,"referral_note","") },`Responsible department saved for ${id}.`)}>Save responsible authority</button>
-                  {incident.department_request && <div style={{ color: "#86efac", fontSize: 12 }}>Included in department request {incident.department_request.request_id}</div>}
+                <Panel title="Municipality routing" hint="Choose the municipality and department in the Assigned Municipality / Department column on the priority card.">
+                  <p style={{ ...ui.muted, fontSize: 12, margin: 0 }}>Your selection is shown immediately in the priority list and groups verified complaints for the same authority under Department Requests. This is a frontend-only demonstration.</p>
                 </Panel>
 
                 <Panel title="2 · Physical inspection" hint="Request an authorized field officer to verify the road condition before maintenance decisions.">
