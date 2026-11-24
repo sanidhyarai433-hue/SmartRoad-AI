@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "");
 const textOr = value => value === null || value === undefined || String(value).trim() === "" ? "Not Provided" : String(value);
 const dateText = value => value ? new Date(value).toLocaleString() : "Not Provided";
 const mapUrl = (lat, lng) => {
