@@ -402,7 +402,7 @@ function LocationPicker({ location, onLocation }) {
 /* ─────────────────────────────────────────────────────────────────────────────
    DETECTION RESULT CARD
 ───────────────────────────────────────────────────────────────────────────── */
-function DetectionResult({ result, location, onReset, onConfirm }) {
+function DetectionResult({ result, location, onReset, onConfirm, onSubmitComplaint, officialSubmitting }) {
   const [copied, setCopied] = useState(false);
 
   const priorities = { major: "Major — high priority", critical: "Critical — immediate attention requested", moderate: "Moderate — normal priority", minor: "Minor — low priority" };
@@ -503,16 +503,20 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
           ["Email", report.uploader_email || "Not available"],
           ["Phone", report.uploader_phone || "Not provided"],
           ["Road / area", report.road_name || report.location || location?.road || "Not provided"],
-          ["GPS coordinates", location ? `${Number(location.lat).toFixed(6)}, ${Number(location.lng).toFixed(6)}` : "Not provided"],
+          ["Full location", report.location || location?.address || location?.road || "Location details unavailable"],
+          ["GPS coordinates", report.lat != null && report.lng != null ? `${Number(report.lat).toFixed(6)}, ${Number(report.lng).toFixed(6)}` : location ? `${Number(location.lat).toFixed(6)}, ${Number(location.lng).toFixed(6)}` : "Not provided"],
+          ["Location source", report.location_resolution || "GPS / user-selected location"],
+          ["Complaint description", report.description || "No additional description provided"],
+          ["Evidence file", report.original_file_name || "Uploaded road evidence"],
           ["Reported on", new Date(report.timestamp || result.timestamp || Date.now()).toLocaleString()],
           ["Damage type", report.damage_type || (Number(result.total_detections) ? "Pothole" : "No damage detected")],
           ["Overall severity", result.severity || report.priority || "Not assessed"],
           ["Potholes detected", String(result.total_detections ?? 0)],
           ["Submission status", "Draft — awaiting your confirmation"],
         ];
-        const rows = Array.isArray(result.detections) ? result.detections : [];
+        const rows = Array.isArray(result.detections) ? result.detections : (Array.isArray(report.detection_details) ? report.detection_details : []);
         return (
-          <section className="sr-inline-report" style={{ background:"rgba(8,25,48,.92)", border:"1px solid rgba(34,211,238,.35)", borderRadius:"1rem", padding:"1.2rem", display:"flex", flexDirection:"column", gap:"1rem" }}>
+          <section id="sr-report-document" className="sr-inline-report" style={{ background:"rgba(8,25,48,.92)", border:"1px solid rgba(34,211,238,.35)", borderRadius:"1rem", padding:"1.2rem", display:"flex", flexDirection:"column", gap:"1rem" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:".75rem", flexWrap:"wrap" }}>
               <div>
                 <p style={{ color:"#67e8f9", fontSize:".65rem", fontWeight:800, letterSpacing:".12em", textTransform:"uppercase" }}>Your generated report</p>
@@ -542,11 +546,21 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
                 </div>
               )}
             </div>
+            <style>{`
+              @media print {
+                body * { visibility: hidden !important; }
+                #sr-report-document, #sr-report-document * { visibility: visible !important; }
+                #sr-report-document { position: absolute !important; inset: 0 !important; width: 100% !important; background: #fff !important; color: #111827 !important; border: 0 !important; box-shadow: none !important; }
+                #sr-report-document p, #sr-report-document h3, #sr-report-document strong, #sr-report-document span { color: #111827 !important; }
+                #sr-report-document > div { break-inside: avoid; }
+                #sr-report-document .sr-report-actions, #sr-report-document .sr-report-note { display: none !important; }
+              }
+            `}</style>
             <div className="sr-report-actions" style={{ display:"flex", gap:".65rem", flexWrap:"wrap" }}>
               <button className="btn-grad" type="button" onClick={() => window.print()}>⬇ Download Report PDF</button>
               <button className="btn-ghost" type="button" onClick={() => onConfirm()}>Open Full Report →</button>
             </div>
-            <p style={{ color:"#94a3b8", fontSize:".68rem", lineHeight:1.5 }}>PDF tip: choose “Save as PDF” in the print dialog. This is a draft report, not proof that the complaint has been officially submitted.</p>
+            <p className="sr-report-note" style={{ color:"#94a3b8", fontSize:".68rem", lineHeight:1.5 }}>This is a draft report. It becomes an official complaint only after you select Submit Complaint.</p>
           </section>
         );
       })()}
@@ -561,7 +575,8 @@ function DetectionResult({ result, location, onReset, onConfirm }) {
             📄 View My Report
           </button>
         )}
-        <button className="btn-grad" style={{ flex:"1 1 220px" }} onClick={onConfirm}>Confirm &amp; Return →</button>
+        <button className="btn-grad" style={{ flex:"1 1 220px" }} onClick={onSubmitComplaint} disabled={officialSubmitting}>{officialSubmitting ? "Submitting…" : "Submit Complaint"}</button>
+        <button className="btn-ghost" style={{ flex:"1 1 220px" }} onClick={onConfirm}>Confirm &amp; View Full Report →</button>
         <button className="btn-ghost" onClick={onReset}>Cancel / Start over</button>
         <button className="btn-ghost" onClick={share}>{copied ? "✓ Copied!" : <>{I.share()} Share</>}</button>
       </div>
@@ -583,6 +598,7 @@ export default function SmartRoadReport() {
   const [steps,       setSteps]       = useState([]);
   const [result,      setResult]      = useState(null);
   const [error,       setError]       = useState("");
+  const [officialSubmitting, setOfficialSubmitting] = useState(false);
   const requestLock = useRef(false);
   const router = useRouter();
 
@@ -596,6 +612,33 @@ export default function SmartRoadReport() {
     s.id = "sr-css"; s.textContent = GLOBAL_CSS;
     document.head.appendChild(s);
   }, []);
+
+  const submitOfficialComplaint = async () => {
+    const reportId = result?.complaint?.id;
+    const token = localStorage.getItem("sr_token");
+    if (!reportId || !token || officialSubmitting) return;
+    setOfficialSubmitting(true);
+    setError("");
+    try {
+      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\\/+$/, "");
+      const response = await fetch(`${backendBase}/user/complaints/${reportId}/submit`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.detail || payload.message || "Could not submit this complaint.");
+      setResult(current => current ? ({
+        ...current,
+        complaint: { ...current.complaint, status: payload.data?.status || "Submitted", submission_status: "submitted" },
+        report: { ...(current.report || {}), ...(payload.data || {}), submission_status: "submitted", status: payload.data?.status || "Submitted" },
+      }) : current);
+      router.push(`/complaint-report/${reportId}`);
+    } catch (err) {
+      setError(err.message || "Complaint submission failed. Your draft is still saved.");
+    } finally {
+      setOfficialSubmitting(false);
+    }
+  };
 
   const reset = () => {
     setFile(null); setLocation(null); setDescription(""); setCaption("");
@@ -735,7 +778,7 @@ export default function SmartRoadReport() {
 
         {/* ── RESULT ── */}
         {result ? (
-          <div className="glass a-fadeup"><div className="gb"><DetectionResult result={result} location={location} onReset={reset} onConfirm={() => {
+          <div className="glass a-fadeup"><div className="gb"><DetectionResult result={result} location={location} onReset={reset} onSubmitComplaint={submitOfficialComplaint} officialSubmitting={officialSubmitting} onConfirm={() => {
               if (!result.complaint?.id) { setError("The draft report could not be identified. Please run detection again."); return; }
               router.push(`/complaint-report/${result.complaint.id}`);
             }} /></div></div>
