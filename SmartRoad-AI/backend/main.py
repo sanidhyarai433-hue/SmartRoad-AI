@@ -1,6 +1,6 @@
 from typing import List
 from pydantic import BaseModel
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Body
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from ultralytics import YOLO
@@ -293,7 +293,8 @@ def get_severity_color(severity):
 def detect_potholes(image_array):
     """Run thread-safe YOLO detection on image and return real model outputs."""
     with _IMAGE_MODEL_LOCK:
-        results = model(image_array)
+        # Explicit inference size and quiet mode avoid unnecessary predictor overhead.
+        results = model.predict(image_array, imgsz=640, conf=0.25, device="cpu", verbose=False)
     detections = []
     # Allowed class names for potholes (update if your model uses a different label)
     ALLOWED_CLASSES = {"pothole", "potholes"}
@@ -726,6 +727,204 @@ async def detect_image(
             pass
 
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# ============== FAST CITIZEN COMPLAINT SUBMISSION ==============
+
+def _process_fast_complaint_ai(report_id: int, image_path: str):
+    """Run YOLO after acknowledgement; persist the completed assessment for both portals."""
+    try:
+        update_persisted_report(report_id, {"ai_status": "processing", "ai_started_at": datetime.now().isoformat()})
+        with open(image_path, "rb") as image_file:
+            raw = image_file.read()
+        image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError("The saved evidence image could not be decoded.")
+        height, width = image.shape[:2]
+        if max(height, width) > 800:
+            scale = 800 / max(height, width)
+            image = cv2.resize(image, (max(1, int(width * scale)), max(1, int(height * scale))), interpolation=cv2.INTER_AREA)
+        image_hash = hashlib.sha256(raw).hexdigest()
+        detections, annotated = _cached_image_inspection(image_hash, image)
+        counts = {
+            "Minor": sum(1 for item in detections if item.get("severity") == "Minor"),
+            "Moderate": sum(1 for item in detections if item.get("severity") == "Moderate"),
+            "Major": sum(1 for item in detections if item.get("severity") == "Major"),
+        }
+        confidence_values = [float(item.get("confidence", 0)) for item in detections if item.get("confidence") is not None]
+        average_confidence = round(sum(confidence_values) / len(confidence_values), 4) if confidence_values else None
+        if counts["Major"]:
+            priority, road_condition = "Major", "Poor"
+        elif counts["Moderate"]:
+            priority, road_condition = "Moderate", "Fair to poor"
+        elif counts["Minor"]:
+            priority, road_condition = "Minor", "Minor damage detected"
+        else:
+            priority, road_condition = "No detected damage", "No pothole detected; manual review remains available"
+        with db_engine.connect() as connection:
+            row = connection.execute(select(complaints_table.c.payload).where(complaints_table.c.id == report_id)).first()
+        if not row:
+            return
+        existing = dict(row[0])
+        if existing.get("priority") == "Critical":
+            priority = "Critical"
+        summary = (
+            f"AI analysis identified {len(detections)} pothole(s): {counts['Major']} major, "
+            f"{counts['Moderate']} moderate and {counts['Minor']} minor."
+            if detections else
+            "The AI model did not detect a pothole in this image. This does not rule out other road defects; manual inspection can still be requested."
+        )
+        history = list(existing.get("history") or [])
+        history.append({
+            "status": "AI analysis completed",
+            "message": "Automated image assessment has been added to the complaint report.",
+            "timestamp": datetime.now().isoformat(),
+            "actor": "SmartRoad AI",
+            "visibility": "public",
+        })
+        update_persisted_report(report_id, {
+            "ai_status": "completed",
+            "ai_completed_at": datetime.now().isoformat(),
+            "detections": len(detections),
+            "detection_details": detections,
+            "severity": counts,
+            "priority": priority,
+            "damage_type": "Pothole" if detections else "No pothole detected",
+            "road_condition": road_condition,
+            "confidence_score": average_confidence,
+            "ai_summary": summary,
+            "image_with_detections": annotated,
+            "ai_review_required": any(item.get("review_required") for item in detections) or not detections,
+            "severity_method": "bounding_box_pixel_area_heuristic_not_physical_measurement",
+            "history": history,
+        })
+        dashboard_data["reports"] = load_persisted_reports()
+    except Exception as error:
+        # Keep the citizen's submitted complaint available even if AI inference fails.
+        update_persisted_report(report_id, {
+            "ai_status": "failed",
+            "ai_error": "AI analysis could not be completed. The complaint remains available for manual review.",
+            "ai_failed_at": datetime.now().isoformat(),
+            "ai_review_required": True,
+        })
+        print(f"Background AI analysis failed for complaint {report_id}: {error}")
+
+
+@app.post("/complaints/submit-fast")
+async def submit_fast_complaint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    latitude: str = Form(None),
+    longitude: str = Form(None),
+    description: str = Form(None),
+    road_name: str = Form(None),
+    is_critical: str = Form("0"),
+    request: Request = None,
+):
+    """Create the official complaint first, then run YOLO in a background task."""
+    auth_header = request.headers.get("authorization", "") if request else ""
+    token = auth_header.split(" ", 1)[1].strip() if auth_header.lower().startswith("bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Please sign in before submitting a road complaint.")
+    user = find_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Your session has expired. Please sign in again.")
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded image is empty.")
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image exceeds the 10 MB upload limit.")
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(status_code=400, detail="Upload a JPG, PNG or WebP road image.")
+    decoded = await run_in_threadpool(cv2.imdecode, np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
+    if decoded is None or decoded.shape[0] < 64 or decoded.shape[1] < 64:
+        raise HTTPException(status_code=400, detail="The image is invalid or too small for road inspection.")
+
+    try:
+        lat = float(latitude) if latitude not in (None, "") else None
+        lng = float(longitude) if longitude not in (None, "") else None
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Enter valid GPS coordinates.")
+    if lat is not None and not -90 <= lat <= 90:
+        raise HTTPException(status_code=400, detail="Latitude is outside the valid range.")
+    if lng is not None and not -180 <= lng <= 180:
+        raise HTTPException(status_code=400, detail="Longitude is outside the valid range.")
+    if (lat is None) != (lng is None):
+        raise HTTPException(status_code=400, detail="Provide both latitude and longitude, or leave both empty.")
+
+    filename = f"{uuid.uuid4().hex}{extension}"
+    image_path = os.path.join(RESULTS_DIR, "images", filename)
+    with open(image_path, "wb") as output_file:
+        output_file.write(contents)
+    now = datetime.now().isoformat()
+    critical = str(is_critical).lower() in {"true", "1", "yes"}
+    location = f"{lat},{lng}" if lat is not None else (road_name or description or "Location not provided")
+    report = {
+        "type": "image",
+        "source": "citizen",
+        "location": location,
+        "road_name": (road_name or "").strip() or None,
+        "description": (description or "").strip()[:2000],
+        "location_captured_at": now,
+        "location_resolution": "GPS supplied" if lat is not None else "GPS unavailable; manual review required",
+        "lat": lat,
+        "lng": lng,
+        "road_segment_id": _road_segment_id(lat, lng),
+        "timestamp": now,
+        "submitted_at": now,
+        "status": "Submitted",
+        "submission_status": "submitted",
+        "progress": 5,
+        "detections": 0,
+        "detection_details": [],
+        "severity": {"Minor": 0, "Moderate": 0, "Major": 0},
+        "priority": "Critical" if critical else "Pending AI analysis",
+        "damage_type": "Awaiting AI analysis",
+        "road_condition": "Awaiting AI analysis",
+        "ai_status": "queued",
+        "ai_queued_at": now,
+        "ai_summary": "Your complaint has been received. AI image analysis is processing in the background.",
+        "confidence_score": None,
+        "image_path": image_path,
+        "image_url": f"/results/images/{filename}",
+        "original_file_name": file.filename or "road-evidence",
+        "uploader_id": user.get("id"),
+        "uploader_name": user.get("name") or "Not Provided",
+        "uploader_email": user.get("email") or None,
+        "uploader_phone": user.get("phone") or None,
+        "verified": True,
+        "is_critical": critical,
+        "ai_review_required": True,
+        "history": [{
+            "status": "Submitted",
+            "message": "Your road-damage complaint was received and registered.",
+            "timestamp": now,
+            "actor": "Citizen",
+            "visibility": "public",
+        }],
+    }
+    saved = persist_report(report)
+    report_id = int(saved["id"])
+    background_tasks.add_task(_process_fast_complaint_ai, report_id, image_path)
+    dashboard_data["reports"] = load_persisted_reports()
+    return {
+        "success": True,
+        "message": "Complaint submitted. AI analysis is running in the background.",
+        "complaint_id": report_id,
+        "ai_status": "queued",
+        "data": {
+            "id": report_id,
+            "status": saved["status"],
+            "submission_status": saved["submission_status"],
+            "ai_status": "queued",
+            "timestamp": saved["timestamp"],
+            "road_segment_id": saved.get("road_segment_id"),
+            "image_url": saved.get("image_url"),
+        },
+    }
 
 
 @app.post("/detect/url-image")
