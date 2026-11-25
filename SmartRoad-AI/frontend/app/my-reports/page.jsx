@@ -14,6 +14,8 @@ export default function MyReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [signedIn, setSignedIn] = useState(true);
+  const [downloading, setDownloading] = useState(null);
+  const [expanded, setExpanded] = useState({});
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -25,10 +27,13 @@ export default function MyReportsPage() {
       setLoading(false);
       return;
     }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
     try {
       const response = await fetch(`${API}/user/reports`, {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store"
+        cache: "no-store",
+        signal: controller.signal
       });
       const result = await response.json().catch(() => ({}));
       if (response.status === 401) {
@@ -38,15 +43,41 @@ export default function MyReportsPage() {
       }
       if (!response.ok || !result.success) throw new Error(result.detail || result.message || "Could not load your reports.");
       setSignedIn(true);
-      setReports(Array.isArray(result.data) ? result.data : []);
+      const rows = Array.isArray(result.data) ? result.data : [];
+      rows.sort((a, b) => new Date(b.timestamp || b.created_at || 0) - new Date(a.timestamp || a.created_at || 0));
+      setReports(rows);
     } catch (err) {
-      setError(err.message || "Unable to connect to the report service.");
+      setError(err.name === "AbortError" ? "The report server did not respond within 45 seconds. It may be waking up after inactivity. Please retry." : (err.message || "Unable to connect to the report service."));
     } finally {
+      clearTimeout(timeout);
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { loadReports(); }, [loadReports]);
+  async function downloadPDF(report) {
+    setDownloading(report.id); setError("");
+    try {
+      const token = localStorage.getItem("sr_token");
+      if (!token) throw new Error("Please sign in again to download this report.");
+      const response = await fetch(`${API}/user/complaints/${report.id}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` }, cache: "no-store"
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || `PDF generation failed (HTTP ${response.status}).`);
+      }
+      const blob = await response.blob();
+      if (blob.type !== "application/pdf") throw new Error("The server did not return a valid PDF.");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `SmartRoad-AI-Report-SR-${String(report.id).padStart(5,"0")}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) { setError(err.message || "PDF download failed."); }
+    finally { setDownloading(null); }
+  }
+
 
   const styles = {
     page: { minHeight: "100vh", background: "linear-gradient(145deg,#071426,#0b1d32 55%,#071426)", color: "#e5edf7", padding: "42px 18px 80px", fontFamily: "Arial,sans-serif" },
@@ -97,7 +128,20 @@ export default function MyReportsPage() {
                 <div style={{...styles.muted,fontSize:13}}>{report.damage_type || "Road damage"} · {severityOf(report)} · {Number(report.detections || 0)} detected issue(s)</div>
                 <div style={{...styles.muted,fontSize:12,marginTop:6}}>Created {dateText(report.timestamp)}{report.submitted_at ? ` · Submitted ${dateText(report.submitted_at)}` : ""}</div>
               </div>
-              <button style={{...styles.button,background:"#087eae",borderColor:"#38bdf8"}} onClick={() => router.push(`/complaint-report/${report.id}`)}>Open report & PDF →</button>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button style={styles.button} onClick={() => setExpanded(v => ({...v,[report.id]:!v[report.id]}))}>{expanded[report.id] ? "Hide written details" : "View written report"}</button>
+                <button style={{...styles.button,background:"#087eae",borderColor:"#38bdf8"}} disabled={downloading===report.id} onClick={() => downloadPDF(report)}>{downloading===report.id ? "Generating PDF…" : "↓ Download PDF"}</button>
+                <button style={styles.button} onClick={() => router.push(`/complaint-report/${report.id}`)}>Open full report →</button>
+              </div>
+              {expanded[report.id] && <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid rgba(148,181,215,.16)"}}>
+                <h3 style={{color:"#7dd3fc",fontSize:15}}>Written report · SR-{String(report.id).padStart(5,"0")}</h3>
+                <p style={{...styles.muted,marginTop:8}}>Status: {isSubmitted ? "Submitted" : "Draft / Pending submission"}</p>
+                <p style={{...styles.muted,marginTop:8}}>AI inspection summary: {report.ai_summary || "Not provided"}</p>
+                <p style={{...styles.muted,marginTop:8}}>Citizen description: {report.description || "Not provided"}</p>
+                <p style={{...styles.muted,marginTop:8}}>Location: {report.road_name || report.location || "Not provided"} · GPS: {report.lat ?? "—"}, {report.lng ?? "—"}</p>
+                <p style={{...styles.muted,marginTop:8}}>Detection count: {Number(report.detections || 0)} · Severity: {severityOf(report)}</p>
+                <button style={styles.button} onClick={() => router.push(`/complaint-report/${report.id}`)}>Open complete written report, evidence and map</button>
+              </div>}
             </article>;
           })}
         </div>
