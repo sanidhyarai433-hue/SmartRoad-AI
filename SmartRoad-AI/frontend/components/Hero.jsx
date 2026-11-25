@@ -12,32 +12,19 @@ function Hero() {
     if (el) el.scrollIntoView({ behavior: 'smooth' })
   }
 
-  const handleUploadClick = () => {
-    router.push('/volunteer')
-  }
-
-  const handleDemoClick = () => {
-    router.push('/demo')
-  }
+  const handleUploadClick = () => router.push('/volunteer')
+  const handleDemoClick = () => router.push('/demo')
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-
-    // Scroll to results/upload section
     scrollTo('upload-section')
-
     const formData = new FormData()
     formData.append('file', file)
-
     try {
-      const res = await fetch('http://localhost:5000/detect', {
-        method: 'POST',
-        body: formData,
-      })
+      const res = await fetch('http://localhost:5000/detect', { method: 'POST', body: formData })
       const data = await res.json()
       console.log('Detection result:', data)
-      // TODO: pass `data` to your results component
     } catch (err) {
       console.error('Upload failed:', err)
     }
@@ -45,11 +32,16 @@ function Hero() {
 
   return (
     <section className="hero" id="home">
-      <div className="hero-bg">
+      <div className="hero-bg" aria-hidden="true">
         <div className="grid-overlay"></div>
         <div className="orb orb-1"></div>
         <div className="orb orb-2"></div>
         <div className="orb orb-3"></div>
+        <div className="hero-road-scene">
+          <div className="hero-light-ribbon"></div>
+          <div className="hero-light-ribbon ribbon-two"></div>
+          <div className="hero-particle-field"></div>
+        </div>
       </div>
       <div className="hero-content">
         <div className="hero-badge">
