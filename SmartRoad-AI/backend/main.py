@@ -1523,7 +1523,8 @@ def get_user_complaints(request: Request):
         # Keep the history list light; the full report endpoint supplies evidence
         # only when a citizen opens a particular complaint.
         item.pop("image_with_detections", None)
-        item.pop("detection_details", None)
+        # Keep detection_details in the list response so the citizen can read
+        # the saved inspection findings without opening every individual page.
         item.pop("previews", None)
         item.pop("attachments", None)
         owned_reports.append(item)
