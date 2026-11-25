@@ -1,0 +1,171 @@
+/* SmartRoad AI — site-wide cinematic motion layer */
+:root {
+  --sr-night: #020817;
+  --sr-blue: #168bff;
+  --sr-cyan: #08d8ff;
+  --sr-silver: rgba(190, 220, 255, .42);
+}
+html { scroll-behavior: smooth; }
+body {
+  background-color: var(--sr-night);
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(0, 88, 190, .19), transparent 54%),
+    radial-gradient(ellipse at 100% 48%, rgba(0, 170, 255, .08), transparent 40%);
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .52;
+  background-image:
+    radial-gradient(circle, rgba(47, 164, 255, .75) 1px, transparent 1.8px),
+    linear-gradient(115deg, transparent 0 48%, rgba(30, 133, 255, .08) 49%, transparent 50% 100%);
+  background-size: 46px 46px, 100% 100%;
+  mask-image: linear-gradient(to bottom, #000, transparent 82%);
+  animation: sr-particle-drift 32s linear infinite;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(120deg, transparent 0 48%, rgba(90, 190, 255, .025) 49%, transparent 50% 100%);
+  background-size: 180px 180px;
+  opacity: .7;
+}
+@keyframes sr-particle-drift { to { background-position: 184px 230px, 0 0; } }
+
+/* Cinematic road scene, built with CSS so it stays lightweight on mobile */
+.hero { isolation: isolate; background: linear-gradient(180deg, rgba(1, 9, 29, .42), rgba(2, 11, 31, .12)); }
+.hero-bg { overflow: hidden; }
+.hero-road-scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: .95;
+  z-index: 0;
+  perspective: 850px;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+.hero-road-scene::before {
+  content: "";
+  position: absolute;
+  width: 150%;
+  height: 72%;
+  left: -25%;
+  bottom: -34%;
+  transform: rotateX(66deg) rotateZ(-7deg);
+  transform-origin: center top;
+  border: 2px solid rgba(23, 153, 255, .62);
+  border-radius: 48% 48% 0 0;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 78px, rgba(38, 155, 255, .22) 79px 81px, transparent 82px 160px),
+    repeating-linear-gradient(0deg, transparent 0 52px, rgba(65, 168, 255, .16) 53px 54px, transparent 55px 105px),
+    linear-gradient(180deg, rgba(0, 68, 150, .08), rgba(0, 139, 255, .2));
+  box-shadow: 0 -8px 42px rgba(0, 125, 255, .2), inset 0 0 70px rgba(0, 116, 255, .16);
+  animation: sr-road-flow 8s linear infinite;
+}
+.hero-road-scene::after {
+  content: "";
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  bottom: 12%;
+  height: 35%;
+  border-top: 2px solid rgba(31, 151, 255, .85);
+  border-radius: 50%;
+  transform: rotate(-10deg) skewY(-5deg);
+  filter: drop-shadow(0 0 7px #078cff) drop-shadow(0 0 22px rgba(0, 132, 255, .85));
+  animation: sr-light-trail 5s ease-in-out infinite alternate;
+}
+.hero-light-ribbon {
+  position: absolute;
+  width: 130%;
+  height: 26%;
+  left: -15%;
+  top: 35%;
+  border-top: 1px solid rgba(44, 159, 255, .75);
+  border-radius: 50%;
+  transform: rotate(-8deg);
+  filter: drop-shadow(0 0 8px rgba(0, 132, 255, .95));
+  animation: sr-ribbon 7s ease-in-out infinite alternate;
+}
+.hero-light-ribbon.ribbon-two {
+  top: 48%;
+  transform: rotate(7deg);
+  opacity: .52;
+  animation-delay: -3s;
+}
+.hero-particle-field {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 16% 24%, #21aaff 0 1px, transparent 2px),
+    radial-gradient(circle at 28% 60%, #68d8ff 0 1px, transparent 2px),
+    radial-gradient(circle at 72% 21%, #1b9bff 0 1px, transparent 2px),
+    radial-gradient(circle at 86% 56%, #42c9ff 0 1.5px, transparent 3px),
+    radial-gradient(circle at 55% 15%, #168bff 0 1px, transparent 2px);
+  background-size: 310px 260px;
+  animation: sr-particle-drift 22s linear infinite;
+}
+@keyframes sr-road-flow { to { background-position: 0 105px, 0 105px, 0 0; } }
+@keyframes sr-light-trail { from { transform: translateX(-2%) rotate(-10deg) skewY(-5deg); opacity: .45; } to { transform: translateX(2%) rotate(-10deg) skewY(-5deg); opacity: 1; } }
+@keyframes sr-ribbon { from { translate: -2% 0; opacity: .35; } to { translate: 2% -10px; opacity: .9; } }
+.hero-content { z-index: 2; }
+.hero-badge { box-shadow: 0 0 24px rgba(0, 161, 255, .16), inset 0 0 18px rgba(0, 161, 255, .08); }
+.hero-title { text-shadow: 0 8px 38px rgba(0, 0, 0, .48); }
+.hero-stats .stat {
+  min-width: 174px;
+  padding: 13px 20px;
+  border: 1px solid rgba(66, 160, 255, .23);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(13, 52, 112, .62), rgba(5, 22, 56, .48));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 12px 34px rgba(0, 0, 0, .2), 0 0 22px rgba(0, 117, 255, .09);
+  backdrop-filter: blur(14px);
+  transition: transform .3s ease, border-color .3s ease, box-shadow .3s ease;
+}
+.hero-stats .stat:hover { transform: translateY(-5px); border-color: rgba(49, 174, 255, .62); box-shadow: 0 0 28px rgba(0, 136, 255, .2); }
+.hero-stats .stat-num { color: #eaf7ff; -webkit-text-fill-color: #eaf7ff; font-family: var(--font-display); }
+.btn-primary { box-shadow: 0 0 24px rgba(0, 129, 255, .42), inset 0 1px 0 rgba(255,255,255,.22); }
+.btn-secondary { border-color: rgba(80, 164, 255, .38); }
+
+/* Carry the visual language into every route and dashboard */
+.navbar { background: linear-gradient(180deg, rgba(2, 10, 29, .82), rgba(2, 10, 29, .12)); }
+.navbar-scrolled { background: rgba(2, 10, 29, .88); border-bottom-color: rgba(80, 164, 255, .18); }
+.navbar-links li a:hover, .nav-btn-link:hover, .navbar-links li a.active {
+  color: #fff;
+  background: rgba(16, 129, 255, .11);
+  box-shadow: inset 0 -2px 0 rgba(31, 161, 255, .85), 0 0 18px rgba(0, 132, 255, .1);
+}
+.glass-card, .dash-stat, .report-card, .complaint-card, .admin-card {
+  border-color: rgba(95, 165, 235, .2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.045), 0 12px 36px rgba(0, 0, 0, .12);
+}
+.glass-card:hover { border-color: rgba(38, 164, 255, .52); box-shadow: 0 18px 48px rgba(0, 0, 0, .3), 0 0 26px rgba(0, 126, 255, .12); }
+button, a { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid #25baff; outline-offset: 3px; }
+
+/* Scroll reveal where supported; graceful fallback keeps content visible */
+@supports (animation-timeline: view()) {
+  main > section:not(.hero), .section, .glass-card {
+    animation: sr-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 28%;
+  }
+}
+@keyframes sr-reveal { from { opacity: .42; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 768px) {
+  .hero { min-height: 92vh; }
+  .hero-road-scene::before { width: 190%; left: -45%; bottom: -30%; opacity: .65; }
+  .hero-road-scene::after { bottom: 9%; }
+  .hero-stats { gap: 10px; }
+  .hero-stats .stat { min-width: 130px; padding: 10px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
