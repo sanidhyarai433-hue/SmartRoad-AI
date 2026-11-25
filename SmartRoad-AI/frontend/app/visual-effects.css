@@ -172,3 +172,106 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 /* Keep the fixed particle layers above the page background but below content. */
 body { isolation: isolate; }
+
+
+/* Extended SmartRoad visual system for inner pages and operational screens */
+:root {
+  color-scheme: dark;
+  --sr-panel: rgba(7, 24, 54, .72);
+  --sr-panel-strong: rgba(5, 17, 42, .9);
+  --sr-edge: rgba(93, 174, 255, .24);
+}
+body {
+  background-color: #020817;
+  background-attachment: fixed;
+}
+main {
+  position: relative;
+  isolation: isolate;
+}
+main:not(:has(.hero)) {
+  padding-top: 86px;
+}
+main:not(:has(.hero))::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 12% 12%, rgba(0, 119, 255, .14), transparent 38%),
+    radial-gradient(ellipse at 88% 35%, rgba(0, 210, 255, .08), transparent 34%),
+    linear-gradient(135deg, transparent 0 49.8%, rgba(118, 190, 255, .045) 50%, transparent 50.2%);
+  background-size: auto, auto, 150px 150px;
+}
+.section {
+  position: relative;
+}
+.section::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(80, 166, 255, .22), rgba(190, 220, 255, .16), transparent);
+}
+.glass-card, .dash-stat, .report-card, .complaint-card, .admin-card,
+[class*="card"], [class*="panel"], [class*="stat"] {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.glass-card, .report-card, .complaint-card, .admin-card,
+[class*="panel"] {
+  background-image: linear-gradient(145deg, rgba(21, 75, 140, .11), rgba(4, 16, 39, .08));
+}
+.dash-stat, .dash-stats > *, .hero-stats > * {
+  border: 1px solid var(--sr-edge);
+  background: linear-gradient(145deg, rgba(12, 49, 104, .72), rgba(4, 17, 43, .78));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 12px 32px rgba(0,0,0,.2);
+  transition: transform .28s ease, border-color .28s ease, box-shadow .28s ease;
+}
+.dash-stat:hover, .dash-stats > *:hover {
+  transform: translateY(-4px);
+  border-color: rgba(48, 174, 255, .58);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .24), 0 0 24px rgba(0, 132, 255, .13);
+}
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  color: #eaf5ff;
+  background-color: rgba(3, 16, 39, .78);
+  border-color: rgba(103, 169, 235, .26);
+  transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: rgba(30, 174, 255, .78) !important;
+  box-shadow: 0 0 0 3px rgba(0, 145, 255, .12), 0 0 20px rgba(0, 145, 255, .1) !important;
+  outline: none;
+}
+button:not(:disabled) {
+  transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease, filter .22s ease;
+}
+button:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+table {
+  border-color: rgba(93, 174, 255, .18);
+}
+th {
+  color: #b9dcff;
+  background: rgba(10, 48, 99, .45);
+}
+td, th {
+  border-color: rgba(93, 174, 255, .13);
+}
+tr:hover td {
+  background: rgba(14, 104, 190, .08);
+}
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #25baff;
+  outline-offset: 3px;
+}
+@media (max-width: 768px) {
+  main:not(:has(.hero)) { padding-top: 70px; }
+  .section::after { left: 5%; right: 5%; }
+}
