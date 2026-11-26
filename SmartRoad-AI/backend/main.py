@@ -629,8 +629,10 @@ async def detect_image(
         except Exception:
             lng = None
 
-        # If lat/lng not provided, attempt to parse from description (or free-form location text)
-        if location_source != "manual" and (lat is None or lng is None) and description:
+        # Manual address submissions must never carry or infer GPS coordinates.
+        if location_source == "manual":
+            lat, lng = None, None
+        elif (lat is None or lng is None) and description:
             p_lat, p_lng = parse_coords_from_string(description)
             if p_lat is not None and p_lng is not None:
                 lat, lng = p_lat, p_lng
@@ -1191,8 +1193,10 @@ async def detect_video(
         except Exception:
             lng = None
 
-        # If lat/lng not provided, attempt to parse from description (or free-form location text)
-        if location_source != "manual" and (lat is None or lng is None) and description:
+        # Manual address submissions must never carry or infer GPS coordinates.
+        if location_source == "manual":
+            lat, lng = None, None
+        elif (lat is None or lng is None) and description:
             p_lat, p_lng = parse_coords_from_string(description)
             if p_lat is not None and p_lng is not None:
                 lat, lng = p_lat, p_lng
