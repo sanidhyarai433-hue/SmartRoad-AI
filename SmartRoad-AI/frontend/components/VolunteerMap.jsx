@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 
-export default function VolunteerMap({ location }) {
+export default function VolunteerMap({ location, onLocationSelect }) {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const marker = useRef(null)
@@ -64,6 +64,9 @@ export default function VolunteerMap({ location }) {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19,
     }).addTo(map.current)
+    map.current.on('click', (event) => {
+      onLocationSelect?.({ lat: event.latlng.lat, lng: event.latlng.lng })
+    })
   }
 
   return <div ref={mapContainer} style={{ width: '100%', height: '100%', minHeight: '160px' }} />
