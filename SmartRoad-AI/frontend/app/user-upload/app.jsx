@@ -624,7 +624,7 @@ export default function SmartRoadReport() {
     setOfficialSubmitting(true);
     setError("");
     try {
-      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+      const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "");
       const response = await fetch(`${backendBase}/user/complaints/${reportId}/submit`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -672,7 +672,7 @@ export default function SmartRoadReport() {
     if (severity) fd.append("severity", severity);
     const authToken = typeof window !== "undefined" ? localStorage.getItem("sr_token") : null;
     if (authToken) fd.append("token", authToken);
-    const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+    const backendBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "");
     try {
       const data = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
