@@ -3,6 +3,9 @@
 import { useState, useRef } from 'react'
 import { detectPotsholesVideo } from '@/services/operations/demoAPI'
 
+const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com').replace(/\\/+$/, '')
+const mediaUrl = value => value ? (/^https?:\\/\\//i.test(value) ? value : BACKEND_URL + (value.startsWith('/') ? '' : '/') + value) : ''
+
 export default function VideoDetectionPage() {
     const [file, setFile] = useState(null)
     const [preview, setPreview] = useState(null)
@@ -92,7 +95,8 @@ export default function VideoDetectionPage() {
     // Process selected file
     const processFile = (selectedFile) => {
         const validTypes = ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm']
-        if (!validTypes.includes(selectedFile.type)) {
+        const validExtension = /\\.(mp4|mov|avi|webm)$/i.test(selectedFile.name || '')
+        if (!validTypes.includes(selectedFile.type) && !validExtension) {
             setError('Please upload a valid video file (MP4, MOV, AVI, WebM, etc.)')
             return
         }
@@ -148,7 +152,15 @@ export default function VideoDetectionPage() {
             const detector = detectPotsholesVideo(formData)
             const response = await detector()
 
-            setResult(response)
+            setResult({
+                ...response,
+                frame_detections: Array.isArray(response.frame_detections) ? response.frame_detections : (Array.isArray(response.per_frame_logs) ? response.per_frame_logs : []),
+                statistics: {
+                    ...(response.statistics || {}),
+                    total_detections: response.statistics?.total_detections ?? response.detections?.length ?? 0,
+                    severity_breakdown: response.statistics?.severity_breakdown || { Minor: 0, Moderate: 0, Major: 0 },
+                },
+            })
         } catch (err) {
             setError(err.message || 'Failed to detect potholes in video. Please try again.')
             console.error('Detection error:', err)
@@ -337,14 +349,38 @@ export default function VideoDetectionPage() {
                                     </div>
                                 </div>
 
+                                {/* Backend-generated annotated video */}
+                                {(result.artifacts?.annotated_video || result.annotated_video_url || result.report?.artifacts?.annotated) && (
+                                    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                                        <h3 className="text-xl font-semibold text-white mb-3">AI Annotated Video</h3>
+                                        <video controls preload="metadata" className="w-full rounded-lg bg-black" src={mediaUrl(result.artifacts?.annotated_video || result.annotated_video_url || result.report?.artifacts?.annotated)} />
+                                        <p className="text-gray-400 text-xs mt-2">Bounding boxes are drawn on frames processed by the backend model.</p>
+                                    </div>
+                                )}
+                                {Array.isArray(result.detections) && result.detections.length > 0 && (
+                                    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                                        <h3 className="text-xl font-semibold text-white mb-4">Individual Pothole Evidence ({result.detections.length})</h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            {result.detections.map((detection, index) => (
+                                                <article key={index} className="bg-gray-900 rounded-lg p-3 border border-gray-700">
+                                                    {detection.preview_image && <img src={detection.preview_image.startsWith('data:') ? detection.preview_image : 'data:image/jpeg;base64,' + detection.preview_image} alt={'Pothole ' + (index + 1)} className="w-full max-h-48 object-contain rounded bg-black mb-3" />}
+                                                    <div className="text-white font-semibold">Pothole #{index + 1} · {detection.severity}</div>
+                                                    <div className="text-gray-400 text-xs mt-1">Frame #{detection.frame_number ?? detection.frame_index ?? 'Unavailable'} · Confidence {Math.round((Number(detection.confidence) || 0) * 100)}%</div>
+                                                    <div className="text-gray-400 text-xs mt-1">Bounding box: {(detection.bbox || []).join(', ') || 'Unavailable'}</div>
+                                                </article>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Frame Detections */}
-                                {result.frame_detections.length > 0 ? (
+                                {(result.frame_detections || []).length > 0 ? (
                                     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
                                         <h3 className="text-xl font-semibold text-white mb-6">
-                                            Detected Frames ({result.frame_detections.length})
+                                            Detected Frames ({(result.frame_detections || []).length})
                                         </h3>
                                         <div className="space-y-3 max-h-screen overflow-y-auto pr-2">
-                                            {result.frame_detections.map((frameData, frameIdx) => (
+                                            {(result.frame_detections || []).map((frameData, frameIdx) => (
                                                 <div key={frameIdx}>
                                                     <button
                                                         onClick={() => setExpandedFrame(expandedFrame === frameIdx ? null : frameIdx)}
@@ -353,7 +389,7 @@ export default function VideoDetectionPage() {
                                                         <div className="flex justify-between items-center">
                                                             <div>
                                                                 <p className="text-white font-semibold">Frame #{frameData.frame_number}</p>
-                                                                <p className="text-gray-400 text-sm">{frameData.detection_count} pothole(s)</p>
+                                                                <p className="text-gray-400 text-sm">{frameData.detection_count ?? frameData.detections?.length ?? 0} detection(s)</p>
                                                             </div>
                                                             <svg className={`w-5 h-5 text-gray-400 transition ${expandedFrame === frameIdx ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
@@ -379,7 +415,7 @@ export default function VideoDetectionPage() {
                                                             <div>
                                                                 <p className="text-gray-300 text-sm font-semibold mb-2">Detection Details:</p>
                                                                 <div className="space-y-3">
-                                                                    {frameData.detections.map((detection, detIdx) => (
+                                                                    {(frameData.detections || []).map((detection, detIdx) => (
                                                                         <div key={detIdx} className={`p-3 rounded border-l-4 ${detection.severity === 'Major' ? 'bg-red-900/20 border-red-500' : detection.severity === 'Moderate' ? 'bg-yellow-900/20 border-yellow-500' : 'bg-green-900/20 border-green-500'}`}>
                                                                             <div className="flex justify-between items-start mb-2">
                                                                                 <span className="text-white font-semibold text-sm">Detection #{detIdx + 1}</span>
