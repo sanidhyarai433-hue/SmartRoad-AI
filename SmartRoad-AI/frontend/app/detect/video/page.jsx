@@ -95,7 +95,7 @@ export default function VideoDetectionPage() {
     // Process selected file
     const processFile = (selectedFile) => {
         const validTypes = ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm']
-        const validExtension = /\\.(mp4|mov|avi|webm)$/i.test(selectedFile.name || '')
+        const validExtension = /\.(mp4|mov|avi|webm)$/i.test(selectedFile.name || '')
         if (!validTypes.includes(selectedFile.type) && !validExtension) {
             setError('Please upload a valid video file (MP4, MOV, AVI, WebM, etc.)')
             return
