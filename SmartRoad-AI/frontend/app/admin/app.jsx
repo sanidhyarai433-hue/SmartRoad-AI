@@ -618,6 +618,26 @@ function ReportsPage({ reports }) {
                 <img src={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "")}${selectedReport.image_url}`} alt="Original road evidence" style={{ width: "100%", maxHeight: 260, objectFit: "contain", background: "#06111f", borderRadius: 9 }} />
               </div>
             )}
+            {selectedReport.type === "video" && (
+              <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+                <div style={{ fontFamily: "'Rajdhani',sans-serif", fontWeight: 700, fontSize: 12, color: "#94a3b8" }}>VIDEO AI EVIDENCE</div>
+                {selectedReport.artifacts?.annotated && <video controls preload="metadata" src={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\\/+$/, "") + selectedReport.artifacts.annotated} style={{ width: "100%", maxHeight: 300, background: "#020617", borderRadius: 9 }} />}
+                {selectedReport.artifacts?.original && <a href={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\\/+$/, "") + selectedReport.artifacts.original} target="_blank" rel="noreferrer" style={{ color: "#7dd3fc", fontSize: 12 }}>Open original uploaded video ↗</a>}
+                <div style={{ color: "#94a3b8", fontSize: 12 }}>Frames analysed: {selectedReport.video_info?.processed_frames ?? "Unavailable"} / {selectedReport.video_info?.total_frames ?? "Unavailable"} · Road: {selectedReport.road_name || selectedReport.location || "Not recorded"} · GPS: {selectedReport.lat ?? "—"}, {selectedReport.lng ?? "—"}</div>
+                {Array.isArray(selectedReport.detection_details) && selectedReport.detection_details.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
+                    {selectedReport.detection_details.map((detection, index) => (
+                      <div key={index} style={{ background: "rgba(2,6,23,.7)", border: "1px solid rgba(148,163,184,.15)", borderRadius: 9, padding: 9 }}>
+                        {detection.preview_image && <img src={detection.preview_image.startsWith("data:") ? detection.preview_image : "data:image/jpeg;base64," + detection.preview_image} alt={"Pothole evidence " + (index + 1)} style={{ width: "100%", maxHeight: 130, objectFit: "contain", background: "#020617", borderRadius: 6 }} />}
+                        <div style={{ color: "#e2e8f0", fontSize: 12, marginTop: 7 }}>#{index + 1} · {detection.severity}</div>
+                        <div style={{ color: "#94a3b8", fontSize: 11 }}>Frame {detection.frame_number ?? detection.frame_index ?? "—"} · {(Number(detection.confidence || 0) * 100).toFixed(1)}% confidence</div>
+                        <div style={{ color: "#94a3b8", fontSize: 10 }}>Box: {(detection.bbox || []).join(", ")}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {[
                 ["Report ID", selectedReport.id],
