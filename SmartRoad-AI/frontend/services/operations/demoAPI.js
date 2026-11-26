@@ -22,8 +22,7 @@ export const detectPotsholesImage = (formData) => {
             const response = await apiConnector(
                 "POST",
                 endPoints.DETECT_IMAGE_API,
-                formData,
-                { "Content-Type": "multipart/form-data" }
+                formData
             )
             if (!response.data.success) throw new Error(response.data.message)
             return response.data
@@ -41,8 +40,7 @@ export const detectPotsholesVideo = (formData) => {
             const response = await apiConnector(
                 "POST",
                 endPoints.DETECT_VIDEO_API,
-                formData,
-                { "Content-Type": "multipart/form-data" }
+                formData
             )
             if (!response.data.success) throw new Error(response.data.message)
             return response.data
