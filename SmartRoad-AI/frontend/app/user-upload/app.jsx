@@ -530,7 +530,7 @@ function DetectionResult({ result, location, onReset, onConfirm, onSubmitComplai
       {result.artifacts?.annotated_video && (
         <div style={{ borderRadius:".875rem", overflow:"hidden", border:"1px solid rgba(71,100,132,.28)", background:"rgba(7,18,42,.85)" }}>
           <div style={{ padding:".65rem 1rem", color:"#67e8f9", fontSize:".72rem", fontWeight:800 }}>AI ANNOTATED VIDEO</div>
-          <video controls preload="metadata" src={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\\/+$/, "") + result.artifacts.annotated_video} style={{ width:"100%", maxHeight:340, background:"#020617", display:"block" }} />
+          <video controls preload="metadata" src={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "") + result.artifacts.annotated_video} style={{ width:"100%", maxHeight:340, background:"#020617", display:"block" }} />
           <p style={{ color:"#94a3b8", fontSize:".7rem", padding:".6rem 1rem" }}>Analysed {result.statistics?.frames_analyzed ?? result.video_info?.processed_frames ?? 0} frames of {result.video_info?.total_frames ?? "unknown"} total frames.</p>
         </div>
       )}
