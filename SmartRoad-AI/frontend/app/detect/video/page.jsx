@@ -148,6 +148,9 @@ export default function VideoDetectionPage() {
         try {
             const formData = new FormData()
             formData.append('file', file)
+            // The backend uses this optional token to associate the saved report with the signed-in user.
+            const authToken = typeof window !== 'undefined' ? localStorage.getItem('sr_token') : null
+            if (authToken) formData.append('token', authToken)
 
             const detector = detectPotsholesVideo(formData)
             const response = await detector()
