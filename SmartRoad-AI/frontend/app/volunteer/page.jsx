@@ -323,16 +323,16 @@ function Toggle({ on, onToggle }) {
   );
 }
 
-function MapPlaceholder({ lat, lng }) {
+function MapPlaceholder({ lat, lng, onMapSelect }) {
   return (
     <div className="map-container scanline" style={{ height: "180px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "12px" }}>
       <div style={{ width: '100%', height: '100%', position: 'absolute', zIndex: 0 }}>
-        <VolunteerMap location={lat && lng ? { lat: parseFloat(lat), lon: parseFloat(lng) } : null} />
+        <VolunteerMap location={lat && lng ? { lat: parseFloat(lat), lon: parseFloat(lng) } : null} onLocationSelect={onMapSelect} />
       </div>
       {!lat && !lng && (
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", color: "var(--text-muted)", fontSize: "13px", background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px", backdropFilter: "blur(5px)" }}>
           <MapPinIcon size={20} stroke="var(--text-muted)" style={{ margin: "0 auto 8px" }} />
-          <div>Location not detected</div>
+          <div>Location not detected · Click map to select</div>
         </div>
       )}
     </div>
@@ -362,9 +362,13 @@ function UploadModule({ onAnalyze, setError, isAnalyzing }) {
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
   const [locating, setLocating] = useState(false);
+  const [locationMode, setLocationMode] = useState("live");
+  const [locationError, setLocationError] = useState("");
+  const [manual, setManual] = useState({ road_name:"", area:"", city:"", state:"", pin_code:"", landmark:"" });
   const [description, setDescription] = useState("");
   const [critical, setCritical] = useState(false);
   const fileRef = useRef();
+  const gpsAttempted = useRef(false);
 
   const handleFile = useCallback((f) => {
     if (!f || (!f.type.startsWith("image/") && !f.type.startsWith("video/"))) return;
@@ -378,31 +382,63 @@ function UploadModule({ onAnalyze, setError, isAnalyzing }) {
       setProgress(Math.min(Math.round(p), 100));
     }, 120);
 
-    // auto-detect location on file selection
-    if (navigator.geolocation && !lat) {
+    // Try GPS once when the user starts preparing a report; never block manual entry.
+    if (!gpsAttempted.current && navigator.geolocation && !lat && !lng) {
+      gpsAttempted.current = true;
+      setLocating(true);
+      setLocationMode("live");
       navigator.geolocation.getCurrentPosition(
-        (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); },
-        () => setError("Location access denied. Please enter manually.")
+        (pos) => {
+          setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6));
+          setLocating(false); setLocationError("");
+        },
+        (err) => {
+          setLocating(false); setLocationMode("manual");
+          setLocationError(err.code === 1 ? "Location permission denied. Enter the address manually." : "GPS unavailable or timed out. Enter the address manually.");
+        },
+        { enableHighAccuracy:false, timeout:7000, maximumAge:60000 }
       );
     }
-  }, [lat, setError]);
+  }, [lat, lng, setError]);
 
   const handleDrop = (e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); };
 
   const handleLocate = () => {
-    setLocating(true);
-    navigator.geolocation?.getCurrentPosition(
-      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); setLocating(false); setError(null); },
-      () => { setError("Location access denied."); setLocating(false); }
+    setLocating(true); setLocationMode("live"); setLocationError("");
+    if (!navigator.geolocation) {
+      setLocating(false); setLocationMode("manual"); setLocationError("This browser does not support GPS. Enter the address manually."); return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); setLocating(false); setLocationMode("live"); setLocationError(""); setError(null); },
+      (err) => { setLocating(false); setLocationMode("manual"); setLocationError(err.code === 1 ? "Location permission denied. Enter the address manually." : "GPS unavailable or timed out. Enter the address manually."); },
+      { enableHighAccuracy:false, timeout:7000, maximumAge:60000 }
     );
   };
 
+  const handleManualChange = (field, value) => {
+    setManual(prev => ({ ...prev, [field]:value }));
+    setLocationMode("manual"); setLat(""); setLng("");
+  };
+
+  const handleMapSelect = ({ lat: mapLat, lng: mapLng }) => {
+    setLat(mapLat.toFixed(6)); setLng(mapLng.toFixed(6));
+    setLocationMode("map"); setLocationError("");
+  };
+
+  const manualValid = ["road_name","area","city","state"].every(k => String(manual[k] || "").trim());
+  const locationValid = locationMode === "live" || locationMode === "map"
+    ? Boolean(lat && lng)
+    : manualValid;
+
   const handleAnalyzeClick = () => {
-    if (!file) return;
-    onAnalyze({ file, preview, lat, lng, description, critical });
+    if (!file || !locationValid) {
+      if (!locationValid) setLocationError("Please provide GPS/map coordinates or complete the four required address fields.");
+      return;
+    }
+    onAnalyze({ file, preview, lat, lng, description, critical, locationMode, manual });
   }
 
-  const canAnalyze = file && progress === 100 && !isAnalyzing;
+  const canAnalyze = file && progress === 100 && !isAnalyzing && locationValid;
 
   return (
     <section style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 32px 60px" }}>
@@ -480,29 +516,46 @@ function UploadModule({ onAnalyze, setError, isAnalyzing }) {
           {/* RIGHT – Meta */}
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
 
-            {/* Locate */}
+            {/* Location method selector */}
             <div>
               <label style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--text-muted)", letterSpacing: "0.08em", display: "block", marginBottom: "8px" }}>LOCATION</label>
-              <button className="btn-secondary" style={{ width: "100%", justifyContent: "center" }} onClick={handleLocate} disabled={locating}>
-                {locating
-                  ? <><span style={{ width: "14px", height: "14px", border: "2px solid var(--cyan)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Detecting…</>
-                  : <><MapPinIcon size={14} />Auto-detect my location</>
-                }
-              </button>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px" }}>
+                <button type="button" className="btn-secondary" style={{ width:"100%", justifyContent:"center", borderColor:locationMode==="live"?"var(--cyan)":"rgba(56,189,248,.2)" }} onClick={handleLocate} disabled={locating}>
+                  {locating ? "Detecting…" : "Use Live Location"}
+                </button>
+                <button type="button" className="btn-secondary" style={{ width:"100%", justifyContent:"center", borderColor:locationMode==="manual"?"var(--cyan)":"rgba(56,189,248,.2)" }} onClick={() => { setLocationMode("manual"); setLat(""); setLng(""); setLocationError(""); }}>
+                  Enter Manually
+                </button>
+              </div>
+              {locationError && <p role="alert" style={{ color:"var(--amber)",fontSize:"12px",marginTop:"8px" }}>{locationError}</p>}
+              {locationMode==="live" && lat && lng && <p style={{ color:"var(--green)",fontSize:"12px",marginTop:"8px" }}>✓ Live GPS location detected</p>}
+              {locationMode==="map" && lat && lng && <p style={{ color:"var(--green)",fontSize:"12px",marginTop:"8px" }}>✓ Map location selected</p>}
             </div>
 
-            {/* Map */}
-            <MapPlaceholder lat={lat} lng={lng} />
+            {/* Existing map with click-to-select support */}
+            <MapPlaceholder lat={lat} lng={lng} onMapSelect={handleMapSelect} />
+            <p style={{ color:"var(--text-muted)",fontSize:"11px" }}>Optional: click the map to select a precise location.</p>
 
-            {/* Lat/Lng */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              {[["Latitude", lat, setLat], ["Longitude", lng, setLng]].map(([lbl, val, setter]) => (
-                <div key={lbl}>
-                  <label style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--text-muted)", letterSpacing: "0.08em", display: "block", marginBottom: "6px" }}>{lbl.toUpperCase()}</label>
-                  <input value={val} onChange={e => setter(e.target.value)} placeholder={lbl === "Latitude" ? "e.g. 13.0827" : "e.g. 80.2707"} style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--text-primary)", fontFamily: "var(--mono)", fontSize: "12px", outline: "none", transition: "border-color 0.2s" }} onFocus={e => e.target.style.borderColor = "rgba(56,189,248,0.4)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.08)"} />
-                </div>
-              ))}
-            </div>
+            {locationMode==="manual" && (
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:"10px",padding:"12px",border:"1px solid var(--border)",borderRadius:"10px",background:"rgba(56,189,248,.035)" }}>
+                {[
+                  ["road_name","Road / Street Name",true],["area","Area / Locality",true],["city","City",true],["state","State",true],["pin_code","PIN Code",false],["landmark","Nearby Landmark",false]
+                ].map(([key,label,required]) => (
+                  <label key={key} style={{ fontSize:"11px",color:"var(--text-secondary)" }}>
+                    {label}{required ? " *" : " (optional)"}
+                    <input value={manual[key]} required={required} maxLength={key==="pin_code"?10:120}
+                      onChange={e => handleManualChange(key,key==="pin_code"?e.target.value.replace(/[^0-9]/g,"").slice(0,10):e.target.value)}
+                      style={{ display:"block",width:"100%",marginTop:"5px",padding:"9px 10px",borderRadius:"7px",background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.1)",color:"var(--text-primary)",fontSize:"12px",outline:"none" }} />
+                  </label>
+                ))}
+              </div>
+            )}
+            {locationMode!=="manual" && lat && lng && (
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
+                <div><label style={{fontFamily:"var(--mono)",fontSize:"10px",color:"var(--text-muted)"}}>LATITUDE</label><input readOnly value={lat} style={{width:"100%",padding:"9px",background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:"8px",color:"var(--text-primary)"}} /></div>
+                <div><label style={{fontFamily:"var(--mono)",fontSize:"10px",color:"var(--text-muted)"}}>LONGITUDE</label><input readOnly value={lng} style={{width:"100%",padding:"9px",background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:"8px",color:"var(--text-primary)"}} /></div>
+              </div>
+            )}
 
             {/* Description */}
             <div>
@@ -705,7 +758,7 @@ export default function VolunteerUploadPage() {
   }, []);
 
   const handleAnalyze = async (payload) => {
-    const { file, lat, lng, description, critical } = payload;
+    const { file, lat, lng, description, critical, locationMode, manual } = payload;
     setIsProcessing(true);
     setResults(null);
     setError(null);
@@ -730,10 +783,17 @@ export default function VolunteerUploadPage() {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('description', description || '');
-      if (lat && lng) {
+      if ((locationMode === 'live' || locationMode === 'map') && lat && lng) {
         fd.append('latitude', lat);
         fd.append('longitude', lng);
       }
+      fd.append('location_source', locationMode === 'map' ? 'map' : locationMode === 'manual' ? 'manual' : 'gps');
+      fd.append('road_name', manual?.road_name || '');
+      fd.append('area', manual?.area || '');
+      fd.append('city', manual?.city || '');
+      fd.append('state', manual?.state || '');
+      fd.append('pin_code', manual?.pin_code || '');
+      fd.append('landmark', manual?.landmark || '');
       fd.append('is_critical', critical ? '1' : '0');
 
       const isVideo = file.type.startsWith('video/');
