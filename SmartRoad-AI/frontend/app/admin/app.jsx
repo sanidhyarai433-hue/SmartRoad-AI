@@ -621,8 +621,8 @@ function ReportsPage({ reports }) {
             {selectedReport.type === "video" && (
               <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
                 <div style={{ fontFamily: "'Rajdhani',sans-serif", fontWeight: 700, fontSize: 12, color: "#94a3b8" }}>VIDEO AI EVIDENCE</div>
-                {selectedReport.artifacts?.annotated && <video controls preload="metadata" src={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\\/+$/, "") + selectedReport.artifacts.annotated} style={{ width: "100%", maxHeight: 300, background: "#020617", borderRadius: 9 }} />}
-                {selectedReport.artifacts?.original && <a href={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\\/+$/, "") + selectedReport.artifacts.original} target="_blank" rel="noreferrer" style={{ color: "#7dd3fc", fontSize: 12 }}>Open original uploaded video ↗</a>}
+                {selectedReport.artifacts?.annotated && <video controls preload="metadata" src={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "") + selectedReport.artifacts.annotated} style={{ width: "100%", maxHeight: 300, background: "#020617", borderRadius: 9 }} />}
+                {selectedReport.artifacts?.original && <a href={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "") + selectedReport.artifacts.original} target="_blank" rel="noreferrer" style={{ color: "#7dd3fc", fontSize: 12 }}>Open original uploaded video ↗</a>}
                 <div style={{ color: "#94a3b8", fontSize: 12 }}>Frames analysed: {selectedReport.video_info?.processed_frames ?? "Unavailable"} / {selectedReport.video_info?.total_frames ?? "Unavailable"} · Road: {selectedReport.road_name || selectedReport.location || "Not recorded"} · GPS: {selectedReport.lat ?? "—"}, {selectedReport.lng ?? "—"}</div>
                 {Array.isArray(selectedReport.detection_details) && selectedReport.detection_details.length > 0 && (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
