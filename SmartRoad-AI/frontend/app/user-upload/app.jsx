@@ -210,7 +210,7 @@ function SeverityBadge({ level }) {
 /* ─────────────────────────────────────────────────────────────────────────────
    UPLOAD BOX
 ───────────────────────────────────────────────────────────────────────────── */
-const isVideoUpload = file => !!file && (String(file.type || "").startsWith("video/") || /\\.(mp4|mov|avi|webm)$/i.test(file.name || ""));
+const isVideoUpload = file => !!file && (String(file.type || "").startsWith("video/") || /\.(mp4|mov|avi|webm)$/i.test(file.name || ""));
 
 function UploadBox({ file, onFile, onRemove }) {
   const [drag, setDrag] = useState(false);
