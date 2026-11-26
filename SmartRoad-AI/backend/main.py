@@ -978,6 +978,26 @@ async def detect_video(
         # Per-frame log for provenance
         per_frame_logs = []
        
+        # Helper to create a cropped, annotated thumbnail from a frame and bbox
+        def frame_crop_base64(frame_img, bbox, padding=12, max_width=640):
+            h, w = frame_img.shape[:2]
+            x1, y1, x2, y2 = bbox
+            x1 = max(0, x1 - padding)
+            y1 = max(0, y1 - padding)
+            x2 = min(w, x2 + padding)
+            y2 = min(h, y2 + padding)
+            crop = frame_img[y1:y2, x1:x2]
+            if crop.size == 0:
+                return None
+            # draw bbox relative to crop
+            rel_bbox = [padding, padding, (x2 - x1) - padding, (y2 - y1) - padding]
+            try:
+                crop_annot = draw_detections(crop.copy(), [{"bbox": [0, 0, crop.shape[1], crop.shape[0]], "severity": classify_severity((crop.shape[1]*crop.shape[0])), "confidence": 1.0}])
+            except Exception:
+                crop_annot = crop
+            _, buffer = cv2.imencode('.jpg', crop_annot)
+            return base64.b64encode(buffer).decode('utf-8')
+
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -1055,25 +1075,7 @@ async def detect_video(
         unique_detections = []
         used_indices = set()
        
-        # Helper to create a cropped, annotated thumbnail from a frame and bbox
-        def frame_crop_base64(frame_img, bbox, padding=12, max_width=640):
-            h, w = frame_img.shape[:2]
-            x1, y1, x2, y2 = bbox
-            x1 = max(0, x1 - padding)
-            y1 = max(0, y1 - padding)
-            x2 = min(w, x2 + padding)
-            y2 = min(h, y2 + padding)
-            crop = frame_img[y1:y2, x1:x2]
-            if crop.size == 0:
-                return None
-            # draw bbox relative to crop
-            rel_bbox = [padding, padding, (x2 - x1) - padding, (y2 - y1) - padding]
-            try:
-                crop_annot = draw_detections(crop.copy(), [{"bbox": [0, 0, crop.shape[1], crop.shape[0]], "severity": classify_severity((crop.shape[1]*crop.shape[0])), "confidence": 1.0}])
-            except Exception:
-                crop_annot = crop
-            _, buffer = cv2.imencode('.jpg', crop_annot)
-            return base64.b64encode(buffer).decode('utf-8')
+
 
         for i, det1 in enumerate(all_detections):
             if i in used_indices:
