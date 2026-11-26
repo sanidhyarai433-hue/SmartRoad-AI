@@ -281,24 +281,27 @@ function UploadBox({ file, onFile, onRemove }) {
 ───────────────────────────────────────────────────────────────────────────── */
 function LocationPicker({ location, onLocation }) {
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState("");
-  const mapRef    = useRef(null);
-  const mapInst   = useRef(null);
+  const [error, setError] = useState("");
+  const [mode, setMode] = useState("live");
+  const [manual, setManual] = useState({ road_name:"", area:"", city:"", state:"", pin_code:"", landmark:"" });
+  const mapRef = useRef(null);
+  const mapInst = useRef(null);
   const markerRef = useRef(null);
-  const L_ref     = useRef(null);
+  const L_ref = useRef(null);
+  const autoAttempted = useRef(false);
 
   useEffect(() => {
     const load = () => {
       if (window.L) { L_ref.current = window.L; bootstrap(window.L); return; }
       const css = document.createElement("link");
       css.rel = "stylesheet"; css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
-      document.head.appendChild(css);
+      if (!document.querySelector('link[href*="leaflet.min.css"]')) document.head.appendChild(css);
       const js = document.createElement("script");
       js.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
       js.onload = () => { L_ref.current = window.L; bootstrap(window.L); };
-      document.head.appendChild(js);
+      if (window.L) { L_ref.current = window.L; bootstrap(window.L); }
+      else { js.onerror = () => setError("The map could not be loaded. You can still enter the address manually."); document.head.appendChild(js); }
     };
-
     const timer = setTimeout(load, 80);
     return () => {
       clearTimeout(timer);
@@ -310,14 +313,14 @@ function LocationPicker({ location, onLocation }) {
     if (!mapRef.current || mapInst.current) return;
     delete L.Icon.Default.prototype._getIconUrl;
     L.Icon.Default.mergeOptions({
-      iconUrl:       "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-      iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-      shadowUrl:     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+      iconUrl:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+      iconRetinaUrl:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+      shadowUrl:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
     });
     const map = L.map(mapRef.current, { center:[20.59,78.96], zoom:4 });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution:"© OpenStreetMap" }).addTo(map);
     mapInst.current = map;
-    map.on("click", async e => placeAt(L, e.latlng.lat, e.latlng.lng));
+    map.on("click", e => placeAt(L, e.latlng.lat, e.latlng.lng, "map"));
   };
 
   const mkIcon = L => L.divIcon({
@@ -326,81 +329,148 @@ function LocationPicker({ location, onLocation }) {
     iconSize:[16,16], iconAnchor:[8,8],
   });
 
-  const placeAt = (L, lat, lng) => {
-    if (!mapInst.current) return;
-    const capturedAt = new Date().toISOString();
-    const coordinates = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    if (markerRef.current) markerRef.current.setLatLng([lat,lng]);
-    else {
-      markerRef.current = L.marker([lat,lng], { icon:mkIcon(L), draggable:true }).addTo(mapInst.current);
-      markerRef.current.on("dragend", () => {
-        const p = markerRef.current.getLatLng();
-        const captured = new Date().toISOString();
-        const fallback = `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
-        onLocation({ lat:p.lat, lng:p.lng, road:fallback, captured_at:captured });
-        revGeo(p.lat, p.lng).then(road => onLocation({ lat:p.lat, lng:p.lng, road, captured_at:captured }));
-      });
-    }
-    mapInst.current.flyTo([lat,lng], 16, { duration:0.7 });
-    // GPS coordinates are usable immediately; address lookup runs in the background.
-    onLocation({ lat, lng, road:coordinates, captured_at:capturedAt });
-    revGeo(lat, lng).then(road => onLocation({ lat, lng, road, captured_at:capturedAt }));
-  };
-
   const revGeo = async (lat, lng) => {
     const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3500);
     try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { signal:controller.signal });
-      if (!r.ok) return fallback;
-      const d = await r.json();
-      return d.display_name || fallback;
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { signal:controller.signal });
+      if (!response.ok) return fallback;
+      const data = await response.json();
+      return data.display_name || fallback;
     } catch { return fallback; }
     finally { clearTimeout(timer); }
   };
 
+  const placeAt = (L, lat, lng, source="gps") => {
+    if (mapInst.current) {
+      if (markerRef.current) markerRef.current.setLatLng([lat,lng]);
+      else {
+        markerRef.current = L.marker([lat,lng], { icon:mkIcon(L), draggable:true }).addTo(mapInst.current);
+        markerRef.current.on("dragend", () => {
+          const point = markerRef.current.getLatLng();
+          placeAt(L, point.lat, point.lng, "map");
+        });
+      }
+      mapInst.current.flyTo([lat,lng], 16, { duration:0.7 });
+    }
+    const capturedAt = new Date().toISOString();
+    const coordinates = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    setMode("live");
+    onLocation({ lat, lng, road:coordinates, captured_at:capturedAt, location_source:source });
+    revGeo(lat, lng).then(road => onLocation({ lat, lng, road, captured_at:capturedAt, location_source:source }));
+    setError("");
+  };
+
   const detect = () => {
-    setLoading(true); setError("");
-    if (!navigator.geolocation) { setError("Geolocation not supported."); setLoading(false); return; }
+    setLoading(true);
+    setError("");
+    if (!navigator.geolocation) {
+      setError("This browser does not support GPS location. Enter the address manually below.");
+      setLoading(false);
+      setMode("manual");
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       pos => {
-        if (L_ref.current) placeAt(L_ref.current, pos.coords.latitude, pos.coords.longitude);
         setLoading(false);
+        if (L_ref.current) placeAt(L_ref.current, pos.coords.latitude, pos.coords.longitude, "gps");
+        else {
+          const lat = pos.coords.latitude, lng = pos.coords.longitude;
+          const capturedAt = new Date().toISOString();
+          onLocation({ lat, lng, road:`${lat.toFixed(5)}, ${lng.toFixed(5)}`, captured_at:capturedAt, location_source:"gps" });
+          revGeo(lat,lng).then(road => onLocation({ lat, lng, road, captured_at:capturedAt, location_source:"gps" }));
+        }
       },
       err => {
-        setError(err.code === 1 ? "Location denied — please allow permissions." : "Could not get location. Try again or select the point on the map.");
         setLoading(false);
+        setMode("manual");
+        setError(err.code === 1
+          ? "Location permission was denied. Enter the road address manually to continue."
+          : "GPS location is unavailable or timed out. Enter the road address manually to continue.");
       },
       { enableHighAccuracy:false, timeout:7000, maximumAge:60000 }
     );
   };
 
+  useEffect(() => {
+    if (autoAttempted.current) return;
+    autoAttempted.current = true;
+    detect();
+  }, []);
+
+  const updateManual = (field, value) => {
+    const next = { ...manual, [field]:value };
+    setManual(next);
+    const address = [next.road_name, next.area, next.city, next.state, next.pin_code, next.landmark ? `Near ${next.landmark}` : ""].filter(Boolean).join(", ");
+    onLocation({
+      lat:null, lng:null, road:address, address, road_name:next.road_name,
+      area:next.area, city:next.city, state:next.state, pin_code:next.pin_code,
+      landmark:next.landmark, captured_at:null, location_source:"manual",
+    });
+  };
+
+  const fields = [
+    ["road_name","Road / Street Name",true,"Enter road or street name"],
+    ["area","Area / Locality",true,"Enter area or locality"],
+    ["city","City",true,"Enter city"],
+    ["state","State",true,"Enter state"],
+    ["pin_code","PIN Code",false,"Optional PIN code"],
+    ["landmark","Nearby Landmark",false,"Optional nearby landmark"],
+  ];
+
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:".8rem" }}>
-      <button className="btn-loc" onClick={detect} disabled={loading}>
-        {loading ? <>{I.spinner(15)} Detecting…</> : <>{I.pin(15)} Auto Detect My Location</>}
-      </button>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:".55rem" }}>
+        <button type="button" className="btn-loc" onClick={() => { setMode("live"); detect(); }} disabled={loading}
+          style={{ borderColor:mode==="live"?"rgba(6,182,212,.65)":"rgba(71,100,132,.4)", color:mode==="live"?"#67e8f9":"#94a3b8" }}>
+          {I.pin(15)} Use Live Location
+        </button>
+        <button type="button" className="btn-loc" onClick={() => { setMode("manual"); setError(""); }}
+          style={{ borderColor:mode==="manual"?"rgba(6,182,212,.65)":"rgba(71,100,132,.4)", color:mode==="manual"?"#67e8f9":"#94a3b8" }}>
+          Enter Location Manually
+        </button>
+      </div>
 
-      {error && (
-        <div className="err-b a-slideup">
-          {I.warn()} <span>{error}</span>
-        </div>
-      )}
+      {loading && <p style={{ color:"#94a3b8", fontSize:".78rem" }}>{I.spinner(13)} Trying to detect your location… You can switch to manual entry at any time.</p>}
+      {error && <div className="err-b a-slideup">{I.warn()} <span>{error}</span></div>}
 
-      {location && (
+      {mode === "live" && location?.lat != null && location?.lng != null && (
         <div className="a-slideup" style={{ padding:".85rem 1rem", borderRadius:".875rem", background:"rgba(10,22,50,.7)", border:"1px solid rgba(71,100,132,.3)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:".4rem", marginBottom:".3rem" }}>
-            <span style={{ width:7, height:7, borderRadius:"50%", background:"#34d399", display:"inline-block" }} className="pulse" />
-            <span style={{ fontSize:".62rem", fontWeight:700, letterSpacing:".1em", textTransform:"uppercase", color:"#34d399" }}>Location Detected</span>
+            <span className="pulse" style={{ width:7,height:7,borderRadius:"50%",background:"#34d399",display:"inline-block" }} />
+            <span style={{ fontSize:".62rem",fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"#34d399" }}>
+              {location.location_source === "map" ? "Map location selected" : "Live GPS location detected"}
+            </span>
           </div>
-          <p style={{ color:"#f1f5f9", fontSize:".85rem", fontWeight:500, lineHeight:1.45, marginBottom:".2rem" }}>{location.road}</p>
-          <p style={{ color:"#475569", fontSize:".72rem", fontFamily:"monospace" }}>{location.lat.toFixed(6)}, {location.lng.toFixed(6)}</p>
+          <p style={{ color:"#f1f5f9",fontSize:".85rem",fontWeight:500,lineHeight:1.45,marginBottom:".2rem" }}>{location.road}</p>
+          <p style={{ color:"#475569",fontSize:".72rem",fontFamily:"monospace" }}>{Number(location.lat).toFixed(6)}, {Number(location.lng).toFixed(6)}</p>
         </div>
       )}
 
-      <div ref={mapRef} style={{ width:"100%", height:280, borderRadius:".875rem", overflow:"hidden", border:"1px solid rgba(71,100,132,.28)" }} />
-      <p style={{ color:"#374151", fontSize:".7rem", textAlign:"center" }}>Click map or drag marker to fine-tune location</p>
+      {mode === "manual" && (
+        <div className="a-slideup" style={{ padding:"1rem", borderRadius:".9rem", background:"rgba(10,22,50,.55)", border:"1px solid rgba(6,182,212,.22)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:".45rem", marginBottom:".8rem" }}>
+            <span style={{ width:7,height:7,borderRadius:"50%",background:"#fbbf24",display:"inline-block" }} />
+            <span style={{ color:"#fbbf24",fontSize:".68rem",fontWeight:800,letterSpacing:".08em",textTransform:"uppercase" }}>Manual address entry selected</span>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:".75rem" }}>
+            {fields.map(([key,label,required,placeholder]) => (
+              <label key={key} style={{ display:"block" }}>
+                <span className="flabel">{label}{required ? " *" : " (optional)"}</span>
+                <input className="sr-in" value={manual[key]} placeholder={placeholder}
+                  required={required} maxLength={key==="pin_code"?10:120}
+                  inputMode={key==="pin_code"?"numeric":"text"}
+                  onChange={e => updateManual(key, key==="pin_code" ? e.target.value.replace(/[^0-9]/g,"").slice(0,10) : e.target.value)} />
+              </label>
+            ))}
+          </div>
+          <p style={{ color:"#64748b",fontSize:".7rem",marginTop:".7rem" }}>No GPS coordinates will be created for a manually entered address.</p>
+        </div>
+      )}
+
+      <div ref={mapRef} style={{ width:"100%",height:280,borderRadius:".875rem",overflow:"hidden",border:"1px solid rgba(71,100,132,.28)" }} />
+      <p style={{ color:"#64748b",fontSize:".7rem",textAlign:"center" }}>Optional: click the map or drag the marker to select a precise location.</p>
     </div>
   );
 }
@@ -637,7 +707,8 @@ export default function SmartRoadReport() {
   const router = useRouter();
 
   const isVideo   = isVideoUpload(file);
-  const canSubmit = !!file && !!location && !submitting;
+  const manualLocationValid = location?.location_source !== "manual" || ["road_name","area","city","state"].every(key => String(location?.[key] || "").trim());
+  const canSubmit = !!file && !!location && manualLocationValid && !submitting;
 
   /* Inject CSS */
   useEffect(() => {
@@ -680,7 +751,10 @@ export default function SmartRoadReport() {
   };
 
   const submit = async () => {
-    if (!canSubmit || requestLock.current) return;
+    if (!canSubmit || requestLock.current) {
+      if (location?.location_source === "manual" && !manualLocationValid) setError("Please complete Road / Street Name, Area / Locality, City and State before submitting.");
+      return;
+    }
     if (!localStorage.getItem("sr_token")) { setError("Please sign in before running AI detection so the draft report can be linked to your account."); return; }
     requestLock.current = true;
     setSubmitting(true); setError("");
@@ -693,11 +767,19 @@ export default function SmartRoadReport() {
     ]);
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("latitude", String(location.lat));
-    fd.append("longitude", String(location.lng));
+    if (location.lat != null && location.lng != null) {
+      fd.append("latitude", String(location.lat));
+      fd.append("longitude", String(location.lng));
+    }
     fd.append("description", description);
-    fd.append("road_name", location.road || "");
-    fd.append("location_captured_at", location.captured_at || new Date().toISOString());
+    fd.append("road_name", location.road_name || location.road || "");
+    fd.append("area", location.area || "");
+    fd.append("city", location.city || "");
+    fd.append("state", location.state || "");
+    fd.append("pin_code", location.pin_code || "");
+    fd.append("landmark", location.landmark || "");
+    fd.append("location_source", location.location_source || "gps");
+    fd.append("location_captured_at", location.captured_at || "");
     if (critical) fd.append("is_critical", "true");
     if (severity) fd.append("severity", severity);
     const authToken = typeof window !== "undefined" ? localStorage.getItem("sr_token") : null;
@@ -847,6 +929,7 @@ export default function SmartRoadReport() {
             {/* 2 – Location */}
             <Sec icon={I.pin()} title="Location" delay="d2">
               <LocationPicker location={location} onLocation={setLocation} />
+              {location?.location_source === "manual" && !manualLocationValid && <p style={{ color:"#fbbf24",fontSize:".75rem",marginTop:".6rem" }}>Required: Road / Street Name, Area / Locality, City and State.</p>}
             </Sec>
 
             {/* 3 – Details */}
