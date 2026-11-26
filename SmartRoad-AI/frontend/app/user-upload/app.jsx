@@ -677,7 +677,7 @@ export default function SmartRoadReport() {
       const data = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${backendBase}${isVideo ? "/detect/video" : "/detect/image"}`);
-        xhr.timeout = 90000;
+        xhr.timeout = 900000; // Video inference can take several minutes on a CPU-only backend.
         if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
         xhr.upload.onload = () => setSteps(current => current.map(step => step.id === "upload" ? { ...step, status: "done" } : step.id === "analyze" ? { ...step, status: "in-progress" } : step));
         xhr.onload = () => {
@@ -686,7 +686,7 @@ export default function SmartRoadReport() {
           if (xhr.status < 200 || xhr.status >= 300 || payload.success === false) reject(new Error(payload.detail || payload.message || `AI inspection failed (${xhr.status})`));
           else resolve(payload);
         };
-        xhr.onerror = () => reject(new Error("Network error while uploading evidence. Check your connection and try again."));
+        xhr.onerror = () => reject(new Error("The backend connection was interrupted during AI processing. The server may be waking up or restarting; please retry with a shorter video (ideally under 60 seconds)."));
         xhr.ontimeout = () => reject(new Error("AI inspection timed out after 90 seconds. Check your connection and try again."));
         xhr.onabort = () => reject(new Error("AI inspection was cancelled."));
         xhr.send(fd);
