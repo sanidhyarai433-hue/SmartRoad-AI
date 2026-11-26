@@ -532,6 +532,12 @@ async def detect_image(
     longitude: str = Form(None),
     description: str = Form(None),
     road_name: str = Form(None),
+    area: str = Form(None),
+    city: str = Form(None),
+    state: str = Form(None),
+    pin_code: str = Form(None),
+    landmark: str = Form(None),
+    location_source: str = Form(None),
     location_captured_at: str = Form(None),
     is_critical: str = Form(None),
     token: str = Form(None),
@@ -637,8 +643,10 @@ async def detect_image(
         if lat is None or lng is None:
             lat, lng = None, None
 
-        # Prefer coordinates for location when available; keep original description separately.
-        location_str = f"{lat},{lng}" if lat is not None and lng is not None else (description or "Unknown Road")
+        # Prefer real coordinates when supplied; otherwise preserve the complete user-entered address.
+        address_parts = [road_name, area, city, state, pin_code, (f"Near {landmark}" if landmark else None)]
+        manual_address = ", ".join(str(part).strip() for part in address_parts if part and str(part).strip())
+        location_str = f"{lat},{lng}" if lat is not None and lng is not None else (manual_address or description or "Unknown Road")
         road_segment_id = _road_segment_id(lat, lng)
 
         # Resolve uploader from token (form token or Authorization header)
@@ -660,7 +668,13 @@ async def detect_image(
             "source": "user",
             "location": location_str,
             "road_name": road_name or None,
-            "location_captured_at": location_captured_at or datetime.now().isoformat(),
+            "area": area or None,
+            "city": city or None,
+            "state": state or None,
+            "pin_code": pin_code or None,
+            "landmark": landmark or None,
+            "location_source": location_source or ("gps" if lat is not None and lng is not None else "manual"),
+            "location_captured_at": location_captured_at or None,
             "description": description,
             "ai_summary": (f"AI analysis identified {len(detections)} pothole(s): {severity_count['Major']} major, {severity_count['Moderate']} moderate and {severity_count['Minor']} minor damage instance(s). " + ("Inspection and necessary road maintenance are requested." if detections else "No potholes were detected by the AI model; manual inspection may still be requested.")),
             "status": "Pending Submission",
@@ -675,7 +689,7 @@ async def detect_image(
             "lat": lat,
             "lng": lng,
             "road_segment_id": road_segment_id,
-            "location_resolution": "GPS supplied" if lat is not None and lng is not None else "Manual location; GPS unavailable",
+            "location_resolution": "GPS supplied" if lat is not None and lng is not None else "Manual address supplied" if manual_address else "Location unavailable",
             "image_path": save_path,
             "image_url": image_url,
             "original_file_name": file.filename or "uploaded-road-image",
@@ -907,6 +921,12 @@ async def detect_video(
     longitude: str = Form(None),
     description: str = Form(None),
     road_name: str = Form(None),
+    area: str = Form(None),
+    city: str = Form(None),
+    state: str = Form(None),
+    pin_code: str = Form(None),
+    landmark: str = Form(None),
+    location_source: str = Form(None),
     location_captured_at: str = Form(None),
     is_critical: str = Form(None),
     token: str = Form(None),
@@ -1185,8 +1205,10 @@ async def detect_video(
         if lat is None or lng is None:
             lat, lng = None, None
 
-        # Prefer coordinates for location when available; keep original description separately.
-        location_str = f"{lat},{lng}" if lat is not None and lng is not None else (description or "Unknown Road")
+        # Prefer real coordinates when supplied; otherwise preserve the complete user-entered address.
+        address_parts = [road_name, area, city, state, pin_code, (f"Near {landmark}" if landmark else None)]
+        manual_address = ", ".join(str(part).strip() for part in address_parts if part and str(part).strip())
+        location_str = f"{lat},{lng}" if lat is not None and lng is not None else (manual_address or description or "Unknown Road")
         road_segment_id = _road_segment_id(lat, lng)
 
         # Build previews list from unique_detections (if detection objects include preview_image)
@@ -1262,7 +1284,13 @@ async def detect_video(
             "source": "user",
             "location": location_str,
             "road_name": road_name or None,
-            "location_captured_at": location_captured_at or datetime.now().isoformat(),
+            "area": area or None,
+            "city": city or None,
+            "state": state or None,
+            "pin_code": pin_code or None,
+            "landmark": landmark or None,
+            "location_source": location_source or ("gps" if lat is not None and lng is not None else "manual"),
+            "location_captured_at": location_captured_at or None,
             "description": description,
             "ai_summary": (f"Video analysis identified {len(unique_detections)} unique pothole instance(s): {severity_count['Major']} major, {severity_count['Moderate']} moderate and {severity_count['Minor']} minor."),
             "status": "Pending Submission",
