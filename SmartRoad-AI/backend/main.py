@@ -967,6 +967,9 @@ async def detect_video(
         processed_frames = 0
         all_detections = []
         max_detections_per_frame = 0
+        # Bound inference work on low-memory hosted instances. Longer videos
+        # automatically use a wider sampling interval (about 120 frames max).
+        sample_interval = max(3, int(np.ceil(max(total_frames, 1) / 120)))
         # Prepare annotated video writer (write resized frames as processed)
         annotated_tmp = os.path.join(artifacts_dir, "annotated.mp4")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -982,8 +985,8 @@ async def detect_video(
            
             frame_count += 1
            
-            # Process every 3rd frame for performance (reduces redundant detections)
-            if frame_count % 3 != 0:
+            # Sample frames evenly instead of processing every frame.
+            if frame_count % sample_interval != 0:
                 continue
            
             processed_frames += 1
@@ -1009,7 +1012,14 @@ async def detect_video(
                 max_detections_per_frame = max(max_detections_per_frame, len(frame_detections))
                 # attach frame reference and frame_index to each detection for preview generation
                 for det in frame_detections:
-                    det['frame'] = frame.copy()
+                    # Store only a compact crop preview, never a full 640x480
+                    # frame per detection (which can exhaust small Render RAM).
+                    try:
+                        det['preview_image'] = frame_crop_base64(
+                            frame, det.get("bbox", [0, 0, 0, 0])
+                        )
+                    except Exception:
+                        det['preview_image'] = None
                     det['frame_index'] = frame_count
                 all_detections.extend(frame_detections)
                 try:
@@ -1104,17 +1114,9 @@ async def detect_video(
             area = width * height
             severity = classify_severity(area)
            
-            # choose representative detection for preview (first in cluster)
+            # Reuse the compact preview captured for the representative frame.
             rep = cluster[0]
-            rep_frame = rep.get('frame', None)
-
-            # build preview image for this cluster if we have a frame
-            preview_b64 = None
-            if rep_frame is not None:
-                try:
-                    preview_b64 = frame_crop_base64(rep_frame, [int(avg_x1), int(avg_y1), int(avg_x2), int(avg_y2)])
-                except Exception:
-                    preview_b64 = None
+            preview_b64 = rep.get('preview_image')
 
             unique_detections.append({
                 "bbox": [int(avg_x1), int(avg_y1), int(avg_x2), int(avg_y2)],
