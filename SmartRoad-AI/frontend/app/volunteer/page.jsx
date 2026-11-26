@@ -710,7 +710,7 @@ export default function VolunteerUploadPage() {
     setResults(null);
     setError(null);
 
-    const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com';
+    const backend = (process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com').replace(/\/+$/, '');
 
     try {
       // pre-flight health check
@@ -748,13 +748,27 @@ export default function VolunteerUploadPage() {
 
       let resp;
       try {
-        resp = await fetch(url, {
-          method: 'POST',
-          body: fd,
-          headers,
-        });
+        // Video inference can take several minutes on the CPU-only Render
+        // instance. Keep the request alive and report the exact backend URL
+        // when the browser cannot establish/maintain the connection.
+        const controller = new AbortController();
+        const requestTimer = setTimeout(() => controller.abort(), 15 * 60 * 1000);
+        try {
+          resp = await fetch(url, {
+            method: 'POST',
+            body: fd,
+            headers,
+            mode: 'cors',
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(requestTimer);
+        }
       } catch (networkErr) {
-        throw new Error(`Network or CORS error connecting to backend: ${networkErr.message}`);
+        const reason = networkErr?.name === 'AbortError'
+          ? 'The AI request exceeded 15 minutes. Try a shorter video.'
+          : `The browser could not reach the backend. Backend: ${backend}. Check that the Render service is Live and that NEXT_PUBLIC_BACKEND_URL points to this exact URL. Browser detail: ${networkErr.message || 'Failed to fetch'}`;
+        throw new Error(reason);
       }
 
       if (!resp.ok) {
