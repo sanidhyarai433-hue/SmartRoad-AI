@@ -426,7 +426,7 @@ function LocationPicker({ location, onLocation }) {
           style={{ borderColor:mode==="live"?"rgba(6,182,212,.65)":"rgba(71,100,132,.4)", color:mode==="live"?"#67e8f9":"#94a3b8" }}>
           {I.pin(15)} Use Live Location
         </button>
-        <button type="button" className="btn-loc" onClick={() => { setMode("manual"); setError(""); }}
+        <button type="button" className="btn-loc" onClick={() => { setMode("manual"); setError(""); onLocation({ lat:null, lng:null, road:"", address:"", road_name:"", area:"", city:"", state:"", pin_code:"", landmark:"", captured_at:null, location_source:"manual" }); }}
           style={{ borderColor:mode==="manual"?"rgba(6,182,212,.65)":"rgba(71,100,132,.4)", color:mode==="manual"?"#67e8f9":"#94a3b8" }}>
           Enter Location Manually
         </button>
