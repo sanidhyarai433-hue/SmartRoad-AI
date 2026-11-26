@@ -47,7 +47,7 @@ export default function NavigatePage() {
     const fetchReports = async () => {
       setLoading(true)
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai.onrender.com'
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com'
         const response = await axios.get(`${backendUrl}/admin/stats`)
         setReports((response.data && response.data.data && response.data.data.reports) || [])
         setError(null)
@@ -84,7 +84,7 @@ export default function NavigatePage() {
   const playAlertSound = useCallback(async () => {
     if (!soundEnabled) return
 
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai.onrender.com'
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com'
     const soundUrl = `${backendUrl}/sounds/alert.mp3`
 
     try {
