@@ -42,8 +42,11 @@ app.mount("/sounds", StaticFiles(directory=SOUNDS_DIR), name="sounds")
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
     CORSMiddleware,
+    # The frontend authenticates with an Authorization bearer token, not
+    # cross-site cookies. Keep wildcard origins but disable credentialed CORS,
+    # which browsers reject when combined with Access-Control-Allow-Origin: *.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
