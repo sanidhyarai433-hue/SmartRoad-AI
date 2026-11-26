@@ -26,7 +26,10 @@ const ui = {
 async function request(path, options = {}) {
   const response = await fetch(API + path, { ...options, headers: { ...(options.headers || {}) }, cache: "no-store" });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.success === false) throw new Error(data.detail || data.message || "Request failed");
+  if (!response.ok || data.success === false) {
+    const detail = data.detail || data.message || response.statusText || "Request failed";
+    throw new Error(`${detail} (HTTP ${response.status}: ${path})`);
+  }
   return data;
 }
 
@@ -54,7 +57,7 @@ export default function RoadPriorityPage() {
   const [intelligence, setIntelligence] = useState(null);
   const [departmentBusy, setDepartmentBusy] = useState("");
   const [municipalAssignments, setMunicipalAssignments] = useState({});
-  const [localDepartmentRequests, setLocalDepartmentRequests] = useState({});
+  const [departmentRequestsBusy, setDepartmentRequestsBusy] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -90,7 +93,6 @@ export default function RoadPriorityPage() {
 
   const updateMunicipalAssignment = (id, field, val) => {
     setMunicipalAssignments(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field]: val } }));
-    setLocalDepartmentRequests({});
   };
 
   const departmentGroups = useMemo(() => {
@@ -109,10 +111,44 @@ export default function RoadPriorityPage() {
     return [...groups.values()].map(g => ({ ...g, incidents: g.incidents.sort((a,b) => (b.priority_score || 0) - (a.priority_score || 0)) }));
   }, [incidents, municipalAssignments]);
 
-  function sendDepartmentRequest(group) {
-    const requestId = "SR-DEMO-" + Date.now().toString().slice(-7);
-    setLocalDepartmentRequests(prev => ({ ...prev, [group.key]: { request_id: requestId, incident_ids: group.incidents.map(x => x.incident_id), created_at: new Date().toLocaleString(), status: "Prepared for municipality (frontend demo)" } }));
-    setNotice("Demo request " + requestId + " prepared for " + group.municipality + ". No external department was contacted.");
+  async function saveMunicipalAssignment(incident) {
+    const assignment = municipalAssignments[incident.incident_id] || {};
+    const municipality = String(assignment.municipality || "").trim();
+    const department = String(assignment.department || "").trim();
+    const office = String(assignment.office || "").trim();
+    if (!municipality || !department) {
+      setError("Select both a municipality/local body and a responsible department before saving.");
+      return;
+    }
+    if (municipality === "Other / Specify manually" && !office) {
+      setError("Enter the responsible office name when selecting Other / Specify manually.");
+      return;
+    }
+    await perform(incident.incident_id, "triage", {
+      municipality,
+      department,
+      authority: office || municipality
+    }, `Routing saved for ${incident.incident_id}. It is now stored in the backend.`);
+  }
+
+  async function sendDepartmentRequest(group) {
+    setDepartmentRequestsBusy(group.key); setError(""); setNotice("");
+    try {
+      const result = await request("/admin/department-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          incident_ids: group.incidents.map(item => item.incident_id),
+          note: `Consolidated request for ${group.municipality} — ${group.department}.`
+        })
+      });
+      setNotice(`Department request ${result.data?.request_id || ""} was saved in SmartRoad AI. This is an internal referral record, not an official government transmission.`);
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDepartmentRequestsBusy("");
+    }
   }
   const value = (id, key, fallback = "") => forms[id]?.[key] ?? fallback;
   const setValue = (id, key, val) => setForms(old => ({ ...old, [id]: { ...old[id], [key]: val } }));
@@ -178,21 +214,21 @@ export default function RoadPriorityPage() {
       </div>
 
       {tab === "departments" ? <div style={{ display: "grid", gap: 12 }}>
-        <Panel title="Municipality-wise consolidated requests" hint="Only visually verified complaints assigned to the same municipality and department are grouped here. This is a frontend demonstration; no government system is contacted.">
+        <Panel title="Municipality-wise consolidated requests" hint="Only visually verified incidents with saved municipality and department assignments are grouped here. Requests are persisted in the SmartRoad AI backend.">
           {departmentGroups.length === 0 ? <p style={ui.muted}>No visually verified incidents have been assigned to a municipality yet. Open Priority ranking and choose a municipality and department in the Assigned Municipality column.</p> : departmentGroups.map(group => {
-            const requestRecord = localDepartmentRequests[group.key];
+            const requestRecord = group.incidents.map(item => item.department_request).find(Boolean);
             const pending = requestRecord ? [] : group.incidents;
             return <div key={group.key} style={{ border: "1px solid #30425f", borderRadius: 12, padding: 14, marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <div><div style={{ fontWeight: 800, fontSize: 16 }}>{group.municipality}</div><div style={{ ...ui.muted, fontSize: 12 }}>{group.department} · {group.incidents.length} incident(s) · {group.incidents.reduce((n,x) => n + (x.supporting_reports || 0),0)} citizen reports</div></div>
-                <button disabled={!pending.length || false} style={{ ...ui.button, background: pending.length ? "#166534" : "#334155" }} onClick={() => sendDepartmentRequest(group)}>{pending.length ? `Prepare municipality request (${pending.length})` : "Demo request prepared"}</button>
+                <button disabled={!pending.length || departmentRequestsBusy === group.key} style={{ ...ui.button, background: pending.length ? "#166534" : "#334155", opacity: departmentRequestsBusy === group.key ? 0.7 : 1 }} onClick={() => sendDepartmentRequest(group)}>{departmentRequestsBusy === group.key ? "Saving request…" : pending.length ? `Create department request (${pending.length})` : "Request recorded"}</button>
               </div>
-              <div style={{ marginTop: 12, display: "grid", gap: 7 }}>{group.incidents.map((item,index) => <div key={item.incident_id} style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 9, alignItems: "center", background: "#091426", borderRadius: 8, padding: 10 }}><strong style={{ color: bandColor(item.priority_band) }}>#{index+1}</strong><div><div style={{ fontSize: 12, fontWeight: 700 }}>{item.location}</div><div style={{ ...ui.muted, fontSize: 11 }}>{item.incident_id} · {item.supporting_reports} report(s) · {item.priority_band} · score {item.priority_score}</div></div><div style={{ textAlign: "right", fontSize: 11, color: requestRecord ? "#86efac" : "#fbbf24" }}>{requestRecord ? `Prepared · ${requestRecord.request_id}` : "Ready to group"}</div></div>)}</div>
-              {requestRecord && <div style={{ color: "#86efac", fontSize: 11, marginTop: 9 }}>Demo request: {requestRecord.request_id} · {requestRecord.created_at} · {requestRecord.status}</div>}
+              <div style={{ marginTop: 12, display: "grid", gap: 7 }}>{group.incidents.map((item,index) => <div key={item.incident_id} style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", gap: 9, alignItems: "center", background: "#091426", borderRadius: 8, padding: 10 }}><strong style={{ color: bandColor(item.priority_band) }}>#{index+1}</strong><div><div style={{ fontSize: 12, fontWeight: 700 }}>{item.location}</div><div style={{ ...ui.muted, fontSize: 11 }}>{item.incident_id} · {item.supporting_reports} report(s) · {item.priority_band} · score {item.priority_score}</div></div><div style={{ textAlign: "right", fontSize: 11, color: requestRecord ? "#86efac" : "#fbbf24" }}>{requestRecord ? `Saved · ${requestRecord.request_id}` : "Ready to group"}</div></div>)}</div>
+              {requestRecord && <div style={{ color: "#86efac", fontSize: 11, marginTop: 9 }}>Backend record: {requestRecord.request_id} · {requestRecord.created_at} · {requestRecord.status}</div>}
             </div>;
           })}
         </Panel>
-        <p style={{ ...ui.muted, fontSize: 11 }}>This screen prepares a visual demo request in browser state only. It does not save to the backend or send anything to a municipality.</p>
+        <p style={{ ...ui.muted, fontSize: 11 }}>Requests are stored as internal SmartRoad AI referral records for tracking. They are not automatically transmitted to an official municipal/government portal.</p>
       </div> : tab === "intelligence" ? <div>
         {!intelligence ? <p style={ui.muted}>Loading historical maintenance intelligence…</p> : <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", gap: 10, marginBottom: 12 }}>
@@ -241,6 +277,7 @@ export default function RoadPriorityPage() {
                   </select>
                   <input aria-label="Office name" style={{ ...ui.input, marginTop: 7 }} placeholder="Office / zone / ward (optional)" value={municipalAssignments[id]?.office || ""} onChange={e => updateMunicipalAssignment(id,"office",e.target.value)} />
                   <div style={{ color: municipalAssignments[id]?.municipality && municipalAssignments[id]?.department ? "#86efac" : "#fbbf24", fontSize: 10, marginTop: 7 }}>{municipalAssignments[id]?.municipality && municipalAssignments[id]?.department ? "Authority selected · grouped in Department Requests" : "Awaiting municipality assignment"}</div>
+                  <button disabled={saving === id} style={{ ...ui.button, width: "100%", marginTop: 9, background: "#0f766e", opacity: saving === id ? 0.65 : 1 }} onClick={() => saveMunicipalAssignment(incident)}>{saving === id ? "Saving routing…" : "Save municipality routing"}</button>
                 </div>
                 <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
                   {incident.lat != null && incident.lng != null && <a href={`https://www.google.com/maps?q=${incident.lat},${incident.lng}`} target="_blank" rel="noreferrer" style={{ color: "#93c5fd", fontSize: 12 }}>Open location map ↗</a>}
@@ -249,7 +286,7 @@ export default function RoadPriorityPage() {
 
               {open && <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
                 <Panel title="Municipality routing" hint="Choose the municipality and department in the Assigned Municipality / Department column on the priority card.">
-                  <p style={{ ...ui.muted, fontSize: 12, margin: 0 }}>Your selection is shown immediately in the priority list and groups verified complaints for the same authority under Department Requests. This is a frontend-only demonstration.</p>
+                  <p style={{ ...ui.muted, fontSize: 12, margin: 0 }}>Choose the authority and save it. The backend updates the incident records and the saved assignment is used to build Department Requests.</p>
                 </Panel>
 
                 <Panel title="2 · Physical inspection" hint="Request an authorized field officer to verify the road condition before maintenance decisions.">
