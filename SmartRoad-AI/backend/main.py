@@ -1331,6 +1331,11 @@ async def detect_video(
                 "severity_breakdown": severity_count,
                 "frames_analyzed": processed_frames
             },
+            "artifacts": {
+                "annotated_video": f"/results/artifacts/{report_id}/annotated.mp4" if annotated_rel else None,
+                "detection_log": f"/results/artifacts/{report_id}/detection_log.json" if log_path else None,
+                "original_video": f"/results/artifacts/{report_id}/original.mp4" if art_orig else None,
+            },
             "complaint": {
                 "id": report.get("id"),
                 "road_segment_id": report.get("road_segment_id"),
