@@ -86,7 +86,13 @@ export default function RoadPriorityPage() {
   useEffect(() => {
     setMunicipalAssignments(prev => {
       const next = { ...prev };
-      incidents.forEach(item => { if (!next[item.incident_id]) next[item.incident_id] = { municipality: item.municipality || "", department: item.department || "", office: item.authority || "" }; });
+      incidents.forEach(item => {
+        if (!next[item.incident_id]) next[item.incident_id] = {
+          municipality: item.municipality && item.municipality !== "Unassigned" ? item.municipality : "",
+          department: item.department && item.department !== "Unassigned" ? item.department : "",
+          office: item.authority && item.authority !== "Unassigned" ? item.authority : ""
+        };
+      });
       return next;
     });
   }, [incidents]);
