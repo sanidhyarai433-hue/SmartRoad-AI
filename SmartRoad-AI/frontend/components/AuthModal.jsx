@@ -8,7 +8,7 @@ export default function AuthModal({ open, onClose, onAuth }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState(null)
-  const backend = (process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com').replace(/\\/+$/, '')
+  const backend = (process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com').replace(/\/+$/, '')
 
   if (!open) return null
 
