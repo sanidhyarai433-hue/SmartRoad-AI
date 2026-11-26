@@ -1247,9 +1247,9 @@ async def detect_video(
         # Finalize annotated video path (relative to static mount)
         annotated_rel = None
         try:
-            annotated_rel = os.path.join("/results", "artifacts", report_id, "annotated.mp4")
-            # annotated_tmp was created in artifacts_dir already
-        except Exception:
+            if os.path.isfile(annotated_tmp) and os.path.getsize(annotated_tmp) > 0:
+                annotated_rel = os.path.join("/results", "artifacts", report_id, "annotated.mp4")
+        except OSError:
             annotated_rel = None
 
         report = {
