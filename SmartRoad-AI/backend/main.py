@@ -1396,7 +1396,7 @@ def get_admin_stats():
     summary_reports = []
     for report in reports:
         summary = dict(report)
-        for large_field in ("image_with_detections", "detection_details", "previews", "attachments", "image_path", "video_path"):
+        for large_field in ("image_with_detections", "detection_details", "frame_detections", "previews", "attachments", "image_path", "video_path"):
             summary.pop(large_field, None)
         summary_reports.append(summary)
     stats = {
@@ -1667,6 +1667,7 @@ def get_user_reports(request: Request):
         item.pop("admin_notes", None)
         item.pop("image_with_detections", None)
         item.pop("previews", None)
+        item.pop("frame_detections", None)
         item.pop("attachments", None)
         reports.append(item)
     reports.sort(key=lambda item: item.get("timestamp") or item.get("created_at") or "", reverse=True)
