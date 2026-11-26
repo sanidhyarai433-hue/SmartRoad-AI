@@ -383,7 +383,7 @@ function UploadModule({ onAnalyze, setError, isAnalyzing }) {
     }, 120);
 
     // Try GPS once when the user starts preparing a report; never block manual entry.
-    if (!gpsAttempted.current && navigator.geolocation && !lat && !lng) {
+    if (!gpsAttempted.current && locationMode !== "manual" && navigator.geolocation && !lat && !lng) {
       gpsAttempted.current = true;
       setLocating(true);
       setLocationMode("live");
@@ -399,7 +399,7 @@ function UploadModule({ onAnalyze, setError, isAnalyzing }) {
         { enableHighAccuracy:false, timeout:7000, maximumAge:60000 }
       );
     }
-  }, [lat, lng, setError]);
+  }, [lat, lng, locationMode, setError]);
 
   const handleDrop = (e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); };
 
