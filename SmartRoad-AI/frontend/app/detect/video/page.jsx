@@ -2,9 +2,9 @@
 
 import { useState, useRef } from 'react'
 import { detectPotsholesVideo } from '@/services/operations/demoAPI'
+
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com').replace(/\/+$/, '')
 const mediaUrl = value => value ? (/^https?:\/\//i.test(value) ? value : BACKEND_URL + (value.startsWith('/') ? '' : '/') + value) : ''
-const mediaUrl = value => value ? (/^https?:\\/\\//i.test(value) ? value : BACKEND_URL + (value.startsWith('/') ? '' : '/') + value) : ''
 
 export default function VideoDetectionPage() {
     const [file, setFile] = useState(null)
