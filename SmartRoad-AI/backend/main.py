@@ -1010,17 +1010,21 @@ async def detect_video(
                 break
            
             frame_count += 1
-           
-            # Sample frames evenly instead of processing every frame.
-            if frame_count % sample_interval != 0:
-                continue
-           
-            processed_frames += 1
-           
-            # Resize frame for faster processing
+
+            # Keep the annotated output at the original timeline length. Frames
+            # not sampled for inference are still copied through unannotated.
             frame = cv2.resize(frame, (640, 480))
-           
-            # Detect potholes in this frame
+            if frame_count % sample_interval != 0:
+                try:
+                    writer.write(frame)
+                except Exception:
+                    pass
+                del frame
+                continue
+
+            processed_frames += 1
+
+            # Detect potholes in this sampled frame
             frame_detections = await run_in_threadpool(detect_potholes, frame)
 
             # Draw detections on a copy and write to annotated video for evidence
