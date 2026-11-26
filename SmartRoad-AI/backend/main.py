@@ -934,7 +934,10 @@ async def detect_video(
             raise HTTPException(status_code=400, detail="The uploaded video is empty.")
         if len(contents) > 100 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="Video exceeds the 100 MB upload limit.")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+        extension = os.path.splitext(file.filename or "")[1].lower()
+        if extension not in {".mp4", ".mov", ".avi", ".webm"}:
+            raise HTTPException(status_code=415, detail="Unsupported video format. Upload MP4, MOV, AVI or WebM.")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as tmp_file:
             tmp_file.write(contents)
             tmp_path = tmp_file.name
 
@@ -1046,13 +1049,17 @@ async def detect_video(
                     det['frame_index'] = frame_count
                 all_detections.extend(frame_detections)
                 try:
-                    entry = {"frame_index": frame_count, "detections": []}
+                    entry = {"frame_index": frame_count, "frame_number": frame_count, "detection_count": len(frame_detections), "detections": []}
                     for fd in frame_detections:
                         entry["detections"].append({
                             "bbox": fd.get("bbox"),
                             "confidence": fd.get("confidence"),
                             "area": fd.get("area"),
                             "severity": fd.get("severity"),
+                            "width": fd.get("width"),
+                            "height": fd.get("height"),
+                            "preview_image": fd.get("preview_image"),
+                            "frame_number": frame_count,
                         })
                     per_frame_logs.append(entry)
                 except Exception:
@@ -1133,6 +1140,7 @@ async def detect_video(
                 "occurrences": len(cluster),  # How many frames this pothole appeared in
                 "preview_image": preview_b64,
                 "frame_index": rep.get('frame_index', None),
+                "frame_number": rep.get('frame_index', None),
                 "sample_description": description
             })
        
@@ -1267,7 +1275,11 @@ async def detect_video(
             "lng": lng,
             "road_segment_id": road_segment_id,
             "location_resolution": "GPS supplied" if lat is not None and lng is not None else "Manual location; GPS unavailable",
+            "video_info": {"total_frames": total_frames, "processed_frames": processed_frames, "fps": fps},
+            "frame_detections": per_frame_logs,
             "video_path": save_vpath,
+            "original_video_url": f"/results/artifacts/{report_id}/original.mp4" if art_orig else None,
+            "annotated_video_url": f"/results/artifacts/{report_id}/annotated.mp4" if annotated_rel else None,
             "previews": previews,
             "artifacts_url": f"/results/artifacts/{report_id}/",
             "artifacts": {
@@ -1326,6 +1338,7 @@ async def detect_video(
                 "max_detections_in_frame": max_detections_per_frame
             },
             "detections": unique_detections,
+            "frame_detections": per_frame_logs,
             "statistics": {
                 "total_detections": len(unique_detections),
                 "severity_breakdown": severity_count,
@@ -1367,7 +1380,16 @@ if __name__ == "__main__":
 @app.get("/admin/stats")
 def get_admin_stats():
     # Query committed complaints from the shared database; pending drafts are hidden.
-    reports = [r for r in load_persisted_reports() if str(r.get("submission_status") or "submitted").lower() != "draft" and str(r.get("status") or "").lower() != "pending submission"]
+    # Video AI inspections are operational evidence and must be visible to admins
+    # immediately, even while the citizen's formal complaint remains a draft.
+    reports = [
+        r for r in load_persisted_reports()
+        if str(r.get("type") or "").lower() == "video"
+        or (
+            str(r.get("submission_status") or "submitted").lower() != "draft"
+            and str(r.get("status") or "").lower() != "pending submission"
+        )
+    ]
     summary_reports = []
     for report in reports:
         summary = dict(report)
