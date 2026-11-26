@@ -1629,7 +1629,6 @@ def get_user_reports(request: Request):
         item.pop("video_path", None)
         item.pop("admin_notes", None)
         item.pop("image_with_detections", None)
-        item.pop("detection_details", None)
         item.pop("previews", None)
         item.pop("attachments", None)
         reports.append(item)
