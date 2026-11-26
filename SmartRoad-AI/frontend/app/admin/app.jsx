@@ -557,7 +557,7 @@ function ReportsPage({ reports }) {
     setNotes("");
     setDetailLoading(true);
     try {
-      const backend = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+      const backend = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "");
       const response = await fetch(`${backend}/admin/report/${r.id}`, { cache: "no-store" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) throw new Error(result.detail || "Could not load full complaint evidence.");
@@ -615,7 +615,7 @@ function ReportsPage({ reports }) {
             {selectedReport.image_url && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ fontFamily: "'Rajdhani',sans-serif", fontWeight: 700, fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>ORIGINAL UPLOADED EVIDENCE</div>
-                <img src={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "")}${selectedReport.image_url}`} alt="Original road evidence" style={{ width: "100%", maxHeight: 260, objectFit: "contain", background: "#06111f", borderRadius: 9 }} />
+                <img src={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "")}${selectedReport.image_url}`} alt="Original road evidence" style={{ width: "100%", maxHeight: 260, objectFit: "contain", background: "#06111f", borderRadius: 9 }} />
               </div>
             )}
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -657,7 +657,7 @@ function ReportsPage({ reports }) {
               {Array.isArray(selectedReport.attachments) && selectedReport.attachments.length > 0 && <div style={{ marginTop: 14 }}>
                 <div style={{ color: "#64748b", fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 8 }}>Additional evidence ({selectedReport.attachments.length})</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))", gap: 8 }}>
-                  {selectedReport.attachments.map((item,index) => <a key={index} href={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "")}${item.image_url}`} target="_blank" rel="noreferrer"><img src={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "")}${item.image_url}`} alt={item.file_name || "Additional evidence"} style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 7 }} /></a>)}
+                  {selectedReport.attachments.map((item,index) => <a key={index} href={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "")}${item.image_url}`} target="_blank" rel="noreferrer"><img src={`${(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "")}${item.image_url}`} alt={item.file_name || "Additional evidence"} style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 7 }} /></a>)}
                 </div>
               </div>}
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.07)" }}>
@@ -711,7 +711,7 @@ function ReportsPage({ reports }) {
               </div>
               <button onClick={async () => {
                 try {
-                  const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai.onrender.com';
+                  const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com';
                   const endpoint = `${backend}/admin/report/${selectedReport?.id}/status`;
                   const body = { status: editStatus, progress: editProgress, notes };
                   const res = await fetch(endpoint, {
@@ -1148,7 +1148,7 @@ export default function App() {
     let mounted = true;
     const fetchStats = async () => {
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com";
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com";
         const res = await fetch(`${backendUrl}/admin/stats`);
         if (!res.ok) throw new Error('no stats');
         const data = await res.json();
