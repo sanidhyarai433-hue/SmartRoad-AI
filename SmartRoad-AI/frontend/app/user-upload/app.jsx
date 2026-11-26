@@ -210,6 +210,8 @@ function SeverityBadge({ level }) {
 /* ─────────────────────────────────────────────────────────────────────────────
    UPLOAD BOX
 ───────────────────────────────────────────────────────────────────────────── */
+const isVideoUpload = file => !!file && (String(file.type || "").startsWith("video/") || /\\.(mp4|mov|avi|webm)$/i.test(file.name || ""));
+
 function UploadBox({ file, onFile, onRemove }) {
   const [drag, setDrag] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -224,12 +226,16 @@ function UploadBox({ file, onFile, onRemove }) {
 
   const pick = f => {
     if (!f) return;
-    if (!f.type.startsWith("image/") && !f.type.startsWith("video/")) return;
+    const video = isVideoUpload(f);
+    const image = String(f.type || "").startsWith("image/");
+    if (!video && !image) return;
+    if (video && f.size > 100 * 1024 * 1024) return;
+    if (image && f.size > 10 * 1024 * 1024) return;
     onFile(f);
   };
 
   if (file) {
-    const isVid = file.type.startsWith("video/");
+    const isVid = isVideoUpload(file);
     return (
       <div className="a-slideup" style={{ borderRadius:"1.25rem", overflow:"hidden", border:"1px solid rgba(59,130,246,.28)", position:"relative" }}>
         {isVid
@@ -258,7 +264,7 @@ function UploadBox({ file, onFile, onRemove }) {
       onDragLeave={() => setDrag(false)}
       onDrop={e => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}
     >
-      <input ref={ref} type="file" accept="image/*,video/*" style={{ display:"none" }} onChange={e => pick(e.target.files[0])} />
+      <input ref={ref} type="file" accept="image/*,video/mp4,video/quicktime,video/x-msvideo,video/webm,.mp4,.mov,.avi,.webm" style={{ display:"none" }} onChange={e => pick(e.target.files[0])} />
       <div style={{ width:56, height:56, borderRadius:"1rem", background: drag ? "rgba(6,182,212,.14)" : "rgba(15,30,60,.6)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 1rem", transition:"all .3s", color: drag ? "#06b6d4" : "#64748b", transform: drag ? "rotate(6deg)" : "none" }}>
         {I.upload(28)}
       </div>
@@ -630,7 +636,7 @@ export default function SmartRoadReport() {
   const requestLock = useRef(false);
   const router = useRouter();
 
-  const isVideo   = file?.type.startsWith("video/");
+  const isVideo   = isVideoUpload(file);
   const canSubmit = !!file && !!location && !submitting;
 
   /* Inject CSS */
