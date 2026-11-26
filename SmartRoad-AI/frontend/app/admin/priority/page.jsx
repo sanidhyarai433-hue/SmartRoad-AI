@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai.onrender.com").replace(/\/+$/, "");
+const API = (process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\/+$/, "");
 const MUNICIPALITIES = ["Mysuru City Corporation","Mangaluru City Corporation","BBMP Bengaluru","Hubballi-Dharwad Municipal Corporation","Belagavi City Corporation","Local Gram Panchayat","Other / Specify manually"];
 
 const DEPARTMENTS = [
