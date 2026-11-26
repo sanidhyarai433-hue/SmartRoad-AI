@@ -954,7 +954,7 @@ async def detect_video(
             save_vpath = None
         # Also save a copy into artifacts for provenance
         try:
-            art_orig = os.path.join(artifacts_dir, "original.mp4")
+            art_orig = os.path.join(artifacts_dir, f"original{extension}")
             with open(art_orig, "wb") as af:
                 af.write(contents)
         except Exception:
@@ -975,7 +975,7 @@ async def detect_video(
         max_detections_per_frame = 0
         # Bound inference work on low-memory hosted instances. Longer videos
         # automatically use a wider sampling interval (about 120 frames max).
-        sample_interval = max(3, int(np.ceil(max(total_frames, 1) / 120)))
+        sample_interval = max(1, int(np.ceil(max(total_frames, 1) / 120)))
         # Prepare annotated video writer (write resized frames as processed)
         annotated_tmp = os.path.join(artifacts_dir, "annotated.mp4")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -1058,7 +1058,6 @@ async def detect_video(
                             "severity": fd.get("severity"),
                             "width": fd.get("width"),
                             "height": fd.get("height"),
-                            "preview_image": fd.get("preview_image"),
                             "frame_number": frame_count,
                         })
                     per_frame_logs.append(entry)
@@ -1278,12 +1277,12 @@ async def detect_video(
             "video_info": {"total_frames": total_frames, "processed_frames": processed_frames, "fps": fps},
             "frame_detections": per_frame_logs,
             "video_path": save_vpath,
-            "original_video_url": f"/results/artifacts/{report_id}/original.mp4" if art_orig else None,
+            "original_video_url": f"/results/artifacts/{report_id}/{os.path.basename(art_orig)}" if art_orig else None,
             "annotated_video_url": f"/results/artifacts/{report_id}/annotated.mp4" if annotated_rel else None,
             "previews": previews,
             "artifacts_url": f"/results/artifacts/{report_id}/",
             "artifacts": {
-                "original": f"/results/artifacts/{report_id}/original.mp4" if art_orig else None,
+                "original": f"/results/artifacts/{report_id}/{os.path.basename(art_orig)}" if art_orig else None,
                 "annotated": f"/results/artifacts/{report_id}/annotated.mp4" if annotated_rel else None,
                 "log": f"/results/artifacts/{report_id}/detection_log.json" if log_path else None,
                 "thumbs": thumb_files,
@@ -1347,7 +1346,7 @@ async def detect_video(
             "artifacts": {
                 "annotated_video": f"/results/artifacts/{report_id}/annotated.mp4" if annotated_rel else None,
                 "detection_log": f"/results/artifacts/{report_id}/detection_log.json" if log_path else None,
-                "original_video": f"/results/artifacts/{report_id}/original.mp4" if art_orig else None,
+                "original_video": f"/results/artifacts/{report_id}/{os.path.basename(art_orig)}" if art_orig else None,
             },
             "complaint": {
                 "id": report.get("id"),
@@ -1428,7 +1427,7 @@ def get_report_artifacts(report_id: str):
     def _exists_rel(p):
         return f"/results/artifacts/{report_id}/{os.path.basename(p)}" if os.path.exists(os.path.join(artifacts_dir, os.path.basename(p))) else None
 
-    orig = _exists_rel("original.mp4")
+    orig = next((f"/results/artifacts/{report_id}/{fn}" for fn in os.listdir(artifacts_dir) if fn.startswith("original.")), None)
     ann = _exists_rel("annotated.mp4")
     log = _exists_rel("detection_log.json")
 
