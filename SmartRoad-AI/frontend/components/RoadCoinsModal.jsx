@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 
 export default function RoadCoinsModal({ open, onClose }) {
   const [user, setUser] = useState(null)
-  const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai.onrender.com'
+  const backend = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://smartroad-ai-6qsx.onrender.com'
 
   useEffect(() => {
     if (!open) return
