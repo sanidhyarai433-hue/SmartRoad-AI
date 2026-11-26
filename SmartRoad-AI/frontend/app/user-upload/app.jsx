@@ -450,6 +450,30 @@ function DetectionResult({ result, location, onReset, onConfirm, onSubmitComplai
         </div>
       )}
 
+      {/* Video evidence and sampled frame results from the FastAPI YOLO endpoint */}
+      {result.artifacts?.annotated_video && (
+        <div style={{ borderRadius:".875rem", overflow:"hidden", border:"1px solid rgba(71,100,132,.28)", background:"rgba(7,18,42,.85)" }}>
+          <div style={{ padding:".65rem 1rem", color:"#67e8f9", fontSize:".72rem", fontWeight:800 }}>AI ANNOTATED VIDEO</div>
+          <video controls preload="metadata" src={(process.env.NEXT_PUBLIC_BACKEND_URL || "https://smartroad-ai-6qsx.onrender.com").replace(/\\/+$/, "") + result.artifacts.annotated_video} style={{ width:"100%", maxHeight:340, background:"#020617", display:"block" }} />
+          <p style={{ color:"#94a3b8", fontSize:".7rem", padding:".6rem 1rem" }}>Analysed {result.statistics?.frames_analyzed ?? result.video_info?.processed_frames ?? 0} frames of {result.video_info?.total_frames ?? "unknown"} total frames.</p>
+        </div>
+      )}
+      {Array.isArray(result.detections) && result.detections.length > 0 && (
+        <div style={{ background:"rgba(10,22,50,.55)", border:"1px solid rgba(71,100,132,.22)", borderRadius:"1rem", padding:"1.1rem" }}>
+          <p style={{ fontSize:".65rem", fontWeight:700, letterSpacing:".09em", textTransform:"uppercase", color:"#67e8f9", marginBottom:".85rem" }}>Individual pothole evidence · {result.detections.length} unique</p>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:".75rem" }}>
+            {result.detections.map((det,index) => (
+              <article key={index} style={{ background:"rgba(4,13,26,.8)", border:"1px solid rgba(71,100,132,.25)", borderRadius:".75rem", padding:".65rem" }}>
+                {det.preview_image && <img src={det.preview_image.startsWith("data:") ? det.preview_image : "data:image/jpeg;base64," + det.preview_image} alt={"Pothole " + (index + 1)} style={{ width:"100%", maxHeight:140, objectFit:"contain", background:"#020617", borderRadius:".45rem" }} />}
+                <p style={{ color:"#e2e8f0", fontSize:".78rem", fontWeight:700, marginTop:".45rem" }}>#{index + 1} · {det.severity}</p>
+                <p style={{ color:"#94a3b8", fontSize:".68rem", marginTop:".25rem" }}>Frame {det.frame_number ?? det.frame_index ?? "unavailable"} · {(Number(det.confidence || 0) * 100).toFixed(1)}% confidence</p>
+                <p style={{ color:"#64748b", fontSize:".65rem", marginTop:".2rem" }}>BBox: {(det.bbox || []).join(", ") || "unavailable"}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="stats-grid">
         {statRows.map(s => (
@@ -687,7 +711,7 @@ export default function SmartRoadReport() {
           else resolve(payload);
         };
         xhr.onerror = () => reject(new Error("The backend connection was interrupted during AI processing. The server may be waking up or restarting; please retry with a shorter video (ideally under 60 seconds)."));
-        xhr.ontimeout = () => reject(new Error("AI inspection timed out after 90 seconds. Check your connection and try again."));
+        xhr.ontimeout = () => reject(new Error("AI inspection timed out after 15 minutes. Check your connection and try a shorter video."));
         xhr.onabort = () => reject(new Error("AI inspection was cancelled."));
         xhr.send(fd);
       });
